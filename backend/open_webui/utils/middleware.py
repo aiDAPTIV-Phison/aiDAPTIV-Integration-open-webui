@@ -92,6 +92,7 @@ from open_webui.config import (
     CACHE_DIR,
     DEFAULT_TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
     DEFAULT_CODE_INTERPRETER_PROMPT,
+    RAG_SELF_KM
 )
 from open_webui.env import (
     SRC_LOG_LEVELS,
@@ -135,9 +136,6 @@ def clean_timing_info_from_content(content):
     # 移除 Total Time 行，保留原有的換行結構
     content = re.sub(r'^Total Time: \d+\.?\d* s\s*\n?', '', content, flags=re.MULTILINE)
     content = re.sub(r'\nTotal Time: \d+\.?\d* s\s*\n?', '\n', content, flags=re.MULTILINE)
-
-    # 清理多餘的換行符（將多個連續換行符替換為單個換行符）
-    content = re.sub(r'\n\s*\n', '\n', content)
 
     # 清理首尾空白
     content = content.strip()
@@ -687,40 +685,41 @@ async def chat_completion_files_handler(
 
     if files := metadata.get("files", None):
         queries = []
-        try:
-            # 第一次 LLM 調用：生成查詢
-            query_gen_start = time.time()
-            log.info(f"[TTFT] Starting query generation (first LLM call)")
-
-            queries_response = await generate_queries(
-                request,
-                {
-                    "model": body["model"],
-                    "messages": body["messages"],
-                    "type": "retrieval",
-                },
-                user,
-            )
-            queries_response = queries_response["choices"][0]["message"]["content"]
-
-            query_gen_time = round(time.time() - query_gen_start, 2)
-            log.info(f"[TTFT] Query generation completed in {query_gen_time}s")
-
+        if not RAG_SELF_KM:
             try:
-                bracket_start = queries_response.find("{")
-                bracket_end = queries_response.rfind("}") + 1
+                # 第一次 LLM 調用：生成查詢
+                query_gen_start = time.time()
+                log.debug(f"[TTFT] Starting query generation (first LLM call)")
 
-                if bracket_start == -1 or bracket_end == -1:
-                    raise Exception("No JSON object found in the response")
+                queries_response = await generate_queries(
+                    request,
+                    {
+                        "model": body["model"],
+                        "messages": body["messages"],
+                        "type": "retrieval",
+                    },
+                    user,
+                )
+                queries_response = queries_response["choices"][0]["message"]["content"]
 
-                queries_response = queries_response[bracket_start:bracket_end]
-                queries_response = json.loads(queries_response)
-            except Exception as e:
-                queries_response = {"queries": [queries_response]}
+                query_gen_time = round(time.time() - query_gen_start, 2)
+                log.debug(f"[TTFT] Query generation completed in {query_gen_time}s")
 
-            queries = queries_response.get("queries", [])
-        except:
-            pass
+                try:
+                    bracket_start = queries_response.find("{")
+                    bracket_end = queries_response.rfind("}") + 1
+
+                    if bracket_start == -1 or bracket_end == -1:
+                        raise Exception("No JSON object found in the response")
+
+                    queries_response = queries_response[bracket_start:bracket_end]
+                    queries_response = json.loads(queries_response)
+                except Exception as e:
+                    queries_response = {"queries": [queries_response]}
+
+                queries = queries_response.get("queries", [])
+            except:
+                pass
 
         if len(queries) == 0:
             queries = [get_last_user_message(body["messages"])]
@@ -728,7 +727,7 @@ async def chat_completion_files_handler(
         try:
             # 執行檢索
             retrieval_start = time.time()
-            log.info(f"[TTFT] Starting document retrieval with queries: {queries}")
+            log.debug(f"[TTFT] Starting document retrieval with queries: {queries}")
 
             # Offload get_sources_from_items to a separate thread
             loop = asyncio.get_running_loop()
@@ -1020,6 +1019,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     tools_dict = {}
 
     if tool_ids:
+        # 只用# collection時未帶, 為None
         tools_dict = get_tools(
             request,
             tool_ids,
@@ -1071,44 +1071,87 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if len(sources) > 0:
         context_string = ""
         citation_idx_map = {}
-        # Mark 原本做法
-        # for source in sources:
-        #     is_tool_result = source.get("tool_result", False)
+        # 當 RAG_SELF_KM 為 True 時，只提取純文字內容，不包含 <source> 標籤
+        if RAG_SELF_KM:
+            # Agent Builder 格式：只包含純文字內容，用換行符分隔
+            for source in sources:
+                is_tool_result = source.get("tool_result", False)
 
-        #     if "document" in source and not is_tool_result:
-        #         for document_text, document_metadata in zip(
-        #             source["document"], source["metadata"]
-        #         ):
-        #             source_name = source.get("source", {}).get("name", None)
-        #             source_id = (
-        #                 document_metadata.get("source", None)
-        #                 or source.get("source", {}).get("id", None)
-        #                 or "N/A"
-        #             )
+                if "document" in source and not is_tool_result:
+                    for document_text in source["document"]:
+                        if document_text:
+                            context_string += f"{document_text}\n"
+            context_string = context_string.strip()
+        else:
+            # 原本做法：使用 <source> 標籤包裝
+            for source in sources:
+                is_tool_result = source.get("tool_result", False)
+                if "document" in source and not is_tool_result:
+                    for document_text, document_metadata in zip(
+                        source["document"], source["metadata"]
+                    ):
+                        source_name = source.get("source", {}).get("name", None)
+                        source_id = (
+                            document_metadata.get("source", None)
+                            or source.get("source", {}).get("id", None)
+                            or "N/A"
+                        )
 
-        #             if source_id not in citation_idx_map:
-        #                 citation_idx_map[source_id] = len(citation_idx_map) + 1
+                        if source_id not in citation_idx_map:
+                            citation_idx_map[source_id] = len(citation_idx_map) + 1
 
-        #             context_string += (
-        #                 f'<source id="{citation_idx_map[source_id]}"'
-        #                 + (f' name="{source_name}"' if source_name else "")
-        #                 + f">{document_text}</source>\n"
-        #             )
-        # context_string = context_string.strip()
+                        context_string += (
+                            f'<source id="{citation_idx_map[source_id]}"'
+                            + (f' name="{source_name}"' if source_name else "")
+                            + f">{document_text}</source>\n"
+                        )
+            context_string = context_string.strip()
 
 
-        #新作法
-        relevance_source_index, _ = max(enumerate(source.get('distances',[])+[0] for source in sources), key=lambda x: x[1][0])
-        source_name = sources[relevance_source_index].get("source", {}).get("name", None)
-        file_id = sources[relevance_source_index].get('metadata',[{}])[0].get('file_id', '')
-        if not file_id:
-            file_id = sources[relevance_source_index].get("source", {}).get("id", '')
-        file = await get_file_by_id(id = file_id,user= user)
-        document_text = file.data.get('content')
-        context_string = (
-                        (f'<source name="{source_name}' if source_name else "")
-                        + f">{document_text}</source>\n"
-        )
+        # 新作法（健壯化）：選擇最相關的來源，優先使用已提供的 document 文本
+        # try:
+        #     # 從各來源的 distances 中選最大（若無 distances 則用 0）
+        #     distances_with_index = []
+        #     for idx, s in enumerate(sources):
+        #         dists = s.get("distances", [])
+        #         score = dists[0] if isinstance(dists, list) and len(dists) > 0 else 0
+        #         distances_with_index.append((idx, score))
+
+        #     relevance_source_index = max(distances_with_index, key=lambda x: x[1])[0] if distances_with_index else 0
+        # except Exception:
+        #     relevance_source_index = 0
+
+        # selected_source = sources[relevance_source_index] if len(sources) > 0 else {}
+        # source_name = selected_source.get("source", {}).get("name", None)
+
+        # # 優先使用 KM RAG API 已提供的 document 文字，避免誤把 collection_id 當成 file_id 去查檔案
+        # document_text = ""
+        # try:
+        #     docs = selected_source.get("document", [])
+        #     if isinstance(docs, list) and len(docs) > 0 and isinstance(docs[0], str):
+        #         document_text = docs[0]
+        # except Exception:
+        #     document_text = ""
+
+        # # 若沒有 document，嘗試（可選）從檔案系統補救；但避免把 collection_id 當成 file_id
+        # if not document_text:
+        #     meta_list = selected_source.get("metadata", [])
+        #     file_id = ""
+        #     if isinstance(meta_list, list) and len(meta_list) > 0:
+        #         file_id = meta_list[0].get("file_id", "")
+        #     # 僅當確實有 file_id 時才嘗試查檔案
+        #     if file_id:
+        #         try:
+        #             file = await get_file_by_id(id=file_id, user=user)
+        #             if file and getattr(file, "data", None):
+        #                 document_text = file.data.get("content", "")
+        #         except Exception:
+        #             document_text = document_text or ""
+
+        # context_string = (
+        #     (f'<source name="{source_name}' if source_name else "")
+        #     + f">{document_text}</source>\n"
+        # )
 
         prompt = get_last_user_message(form_data["messages"])
         if prompt is None:
@@ -1137,20 +1180,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     form_data["messages"],
                 )
 
-
-
     # If there are citations, add them to the data_items
-    # Mark 原本做法
-    # sources = [
-    #     source
-    #     for source in sources
-    #     if source.get("source", {}).get("name", "")
-    #     or source.get("source", {}).get("id", "")
-    # ]
-
-
-        # 新作法
-        sources = [sources[relevance_source_index]]
+    sources = [
+        source
+        for source in sources
+        if source.get("source", {}).get("name", "")
+        or source.get("source", {}).get("id", "")
+    ]
 
     if len(sources) > 0:
         events.append({"sources": sources})
@@ -2011,7 +2047,7 @@ async def process_chat_response(
                     # 進入函數時增加深度
                     stream_handler_depth += 1
                     current_depth = stream_handler_depth
-                    log.info(f"[TTFT] Stream body handler entered, depth={current_depth}")
+                    log.debug(f"[TTFT] Stream body handler entered, depth={current_depth}")
 
                     response_tool_calls = []
 
@@ -2024,7 +2060,7 @@ async def process_chat_response(
                         ),
                     )
 
-                    log.info(f"[TTFT] Stream body handler started, depth={current_depth}, first_token_received={first_token_received}")
+                    log.debug(f"[TTFT] Stream body handler started, depth={current_depth}, first_token_received={first_token_received}")
                     line_count = 0
                     raw_data_dump = []  # 收集所有原始數據以便 debug
                     async for line in response.body_iterator:
@@ -2048,7 +2084,7 @@ async def process_chat_response(
                             current_time = time.time()
                             elapsed = round(current_time - start_time, 3)
                             raw_data_dump.append(f"[{elapsed}s] Line #{line_count}: {data[:300] if len(data) > 300 else data}")
-                            log.info(f"[TTFT DEBUG] [{elapsed}s] Raw line #{line_count}: {data[:200] if len(data) > 200 else data}")
+                            log.debug(f"[TTFT DEBUG] [{elapsed}s] Raw line #{line_count}: {data[:200] if len(data) > 200 else data}")
 
                         try:
                             data = json.loads(data)
@@ -2100,9 +2136,6 @@ async def process_chat_response(
                                         continue
 
                                     delta = choices[0].get("delta", {})
-                                    # Debug: 記錄 delta 的所有 key
-                                    if delta and not first_token_received:
-                                        log.info(f"[TTFT DEBUG] Delta keys: {list(delta.keys())}, delta content: {str(delta)[:200]}")
                                     delta_tool_calls = delta.get("tool_calls", None)
 
                                     if delta_tool_calls:
@@ -2171,12 +2204,10 @@ async def process_chat_response(
                                         or delta.get("thinking")
                                     )
                                     if reasoning_content:
-                                        log.info(f"[TTFT DEBUG] Received reasoning_content: {reasoning_content[:50] if len(reasoning_content) > 50 else reasoning_content}")
                                         # 如果這是第一個 token（reasoning），記錄 TTFT
                                         if not first_token_received:
                                             ttft_value = round(time.time() - start_time, 2)
                                             first_token_received = True
-                                            log.info(f"[TTFT] First token (reasoning) received, TTFT={ttft_value}s, content_length={len(reasoning_content)}")
 
                                         if (
                                             not content_blocks
@@ -2206,7 +2237,6 @@ async def process_chat_response(
 
                                     if value:
                                         current_elapsed = round(time.time() - start_time, 3)
-                                        # log.info(f"[TTFT DEBUG] [{current_elapsed}s] Received content value: '{value[:100] if len(value) > 100 else value}', stripped: '{value.strip()[:50] if len(value.strip()) > 50 else value.strip()}', first_token_received={first_token_received}")
                                         # 如果這是第一個 token（content），記錄 TTFT
                                         # 過濾掉標籤本身（如 <think>, </think> 等）
                                         # 只有當收到實際的內容時才計算 TTFT
@@ -2218,22 +2248,22 @@ async def process_chat_response(
                                                              "<reason>", "</reason>", "<reasoning>", "</reasoning>"]
                                         )
 
-                                        log.info(f"[TTFT DEBUG] [{current_elapsed}s] is_tag_only={is_tag_only}, stripped_value='{stripped_value}', first_token_received={first_token_received}, ttft_added_to_stream={ttft_added_to_stream}")
+                                        log.debug(f"[TTFT DEBUG] [{current_elapsed}s] is_tag_only={is_tag_only}, stripped_value='{stripped_value}', first_token_received={first_token_received}, ttft_added_to_stream={ttft_added_to_stream}")
 
                                         # 確保 TTFT 只計算和添加一次
                                         if not first_token_received and stripped_value and len(stripped_value) > 0 and not is_tag_only:
                                             # 計算 TTFT（只會發生一次，因為之後 first_token_received = True）
                                             ttft_value = round(time.time() - start_time, 2)
                                             first_token_received = True
-                                            log.info(f"[TTFT] First token (content) received, TTFT={ttft_value}s, depth={current_depth}, content_length={len(value)}, stripped_length={len(value.strip())}, content='{stripped_value[:30]}'")
+                                            log.debug(f"[TTFT] First token (content) received, TTFT={ttft_value}s, depth={current_depth}, content_length={len(value)}, stripped_length={len(value.strip())}, content='{stripped_value[:30]}'")
 
                                             # 只在未添加過時才添加 TTFT 到串流（忽略 depth，因為 depth 可能在 tool calls 後重置）
                                             if not ttft_added_to_stream:
                                                 value = f"### 🟢Time to first token: {ttft_value} s\n{value}"
                                                 ttft_added_to_stream = True
-                                                log.info(f"[TTFT] Added TTFT to stream at depth={current_depth}")
+                                                log.debug(f"[TTFT] Added TTFT to stream at depth={current_depth}")
                                             else:
-                                                log.info(f"[TTFT] Skipped adding TTFT to stream (already_added={ttft_added_to_stream}, depth={current_depth})")
+                                                log.debug(f"[TTFT] Skipped adding TTFT to stream (already_added={ttft_added_to_stream}, depth={current_depth})")
 
                                         if (
                                             content_blocks
@@ -2382,7 +2412,7 @@ async def process_chat_response(
 
                     # 離開函數時減少深度
                     stream_handler_depth -= 1
-                    log.info(f"[TTFT] Stream body handler exited, new depth={stream_handler_depth}")
+                    log.debug(f"[TTFT] Stream body handler exited, new depth={stream_handler_depth}")
 
                 await stream_body_handler(response, form_data)
 
@@ -2744,7 +2774,7 @@ async def process_chat_response(
                 total_time = round(time.time() - start_time, 2)
 
                 # 記錄最終統計
-                log.info(f"[TTFT] Response completed - TTFT={ttft_value}s, Total Time={total_time}s, stream_handler_depth={stream_handler_depth}")
+                log.debug(f"[TTFT] Response completed - TTFT={ttft_value}s, Total Time={total_time}s, stream_handler_depth={stream_handler_depth}")
                 # if raw_data_dump:
                 #     log.info(f"[TTFT DEBUG] Raw data dump (first 10 lines):")
                 #     for dump_line in raw_data_dump:
@@ -2752,12 +2782,12 @@ async def process_chat_response(
 
                 # 確保時間信息只添加一次
                 # 由於已經在串流中添加了 TTFT，這裡只需要確保沒有重複
-                log.info(f"[TTFT] Checking final content: ttft_value={ttft_value}, ttft_added_to_stream={ttft_added_to_stream}, ttft_added_to_final={ttft_added_to_final}")
+                log.debug(f"[TTFT] Checking final content: ttft_value={ttft_value}, ttft_added_to_stream={ttft_added_to_stream}, ttft_added_to_final={ttft_added_to_final}")
 
                 # 如果已經在串流中添加過，就不需要再添加到最終內容了
                 if ttft_added_to_stream:
                     ttft_added_to_final = True
-                    log.info(f"[TTFT] TTFT was already added to stream, skipping final content addition")
+                    log.debug(f"[TTFT] TTFT was already added to stream, skipping final content addition")
                 elif ttft_value > 0 and content_blocks and not ttft_added_to_final:
                     # 只在沒有添加到串流時才添加到最終內容
                     first_text_block = None
@@ -2774,18 +2804,13 @@ async def process_chat_response(
                         if not already_has_ttft:
                             first_text_block["content"] = f"### 🟢Time to first token: {ttft_value} s\n{first_text_block['content']}"
                             ttft_added_to_final = True
-                            log.info(f"[TTFT] Added TTFT to final content (was not in stream)")
                         else:
                             ttft_added_to_final = True
-                            log.info(f"[TTFT] TTFT already exists in final content, skipped")
 
                 # 只添加一次 Total Time
                 if not total_time_added:
                     content_blocks[-1]['content'] += f"\nTotal Time: {total_time} s"
                     total_time_added = True
-                    log.info(f"[TTFT] Added Total Time to final content")
-                else:
-                    log.warning(f"[TTFT] Attempted to add Total Time again, but it was already added!")
                 data = {
                     "done": True,
                     "content": serialize_content_blocks(content_blocks),

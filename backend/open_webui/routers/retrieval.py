@@ -1,15 +1,16 @@
+from collections import defaultdict
 import json
 import logging
 import mimetypes
 import os
 import shutil
 import asyncio
-
+import time
 
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence, Union
+from typing import Any, Iterator, List, Optional, Sequence, Union
 
 from fastapi import (
     Depends,
@@ -24,9 +25,13 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import List
 import tiktoken
 
+import httpx
+import uuid
+from pathlib import Path
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter, TokenTextSplitter
 from langchain_text_splitters import MarkdownHeaderTextSplitter
@@ -83,15 +88,19 @@ from open_webui.utils.misc import (
 from open_webui.utils.auth import get_admin_user, get_verified_user
 
 from open_webui.config import (
+    DOCKER_ENV,
     ENV,
     RAG_EMBEDDING_MODEL_AUTO_UPDATE,
     RAG_EMBEDDING_MODEL_TRUST_REMOTE_CODE,
-    RAG_RERANKING_MODEL_AUTO_UPDATE,
     RAG_RERANKING_MODEL_TRUST_REMOTE_CODE,
     UPLOAD_DIR,
     DEFAULT_LOCALE,
     RAG_EMBEDDING_CONTENT_PREFIX,
     RAG_EMBEDDING_QUERY_PREFIX,
+    KM_SELF_RAG_API_BASE_URL,
+    RAG_SELF_KM,
+    PARSE_RESULT_DIR,
+    PARSE_DIR_FOR_API
 )
 from open_webui.env import (
     SRC_LOG_LEVELS,
@@ -198,6 +207,21 @@ def get_rf(
 
 
 router = APIRouter()
+
+class FileInfo(BaseModel):
+    path: str = Field(..., description="File path")
+    filename: str = Field(..., description="File name")
+
+class ProcessingRequest(BaseModel):
+    """Document processing request"""
+    collection_name: str = Field(..., description="Collection name")
+    file_list: List[FileInfo] = Field(..., description="File list, each file contains path and filename")
+    language: str = Field(default="zh-TW", description="Language for prompt template (zh-TW, en, english)")
+
+class RetrievalRequest(BaseModel):
+    """Retrieval request"""
+    collection_name: str = Field(..., description="Collection name")
+    query: str = Field(..., description="User query")
 
 
 class CollectionNameForm(BaseModel):
@@ -1252,6 +1276,9 @@ def save_docs_to_vector_db(
         for doc in docs
     ]
 
+    # 觸發 KM_SELF_RAG 處理
+    trigger_km_self_rag_processing(request, docs, collection_name)
+
     try:
         if VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
             log.info(f"collection {collection_name} already exists")
@@ -1321,6 +1348,150 @@ def save_docs_to_vector_db(
     except Exception as e:
         log.exception(e)
         raise e
+
+def trigger_km_self_rag_processing(request: Request, docs: list, collection_name: str):
+    """
+    觸發 KM_SELF_RAG 處理的獨立函數
+
+    Args:
+        request: FastAPI Request 物件
+        docs: 處理好的文檔列表
+        collection_name: 集合名稱
+    """
+    try:
+        # 檢查是否啟用 KM_SELF_RAG
+        if not RAG_SELF_KM:
+            return
+
+        # TODO: 目前打給KM的collection_name是UUID, 要改成知識庫名稱的話需要能同步collection狀態
+        knowledge = Knowledges.get_knowledge_by_id(collection_name)
+        if knowledge:
+            original_name = knowledge.name  # 這就是原始的知識庫名稱
+            log.info(f"collection_name: {collection_name}, original_name: {original_name}")
+        else:
+            original_name = collection_name
+            log.info(f"collection_name: {collection_name}")
+
+        # 只在添加到知識庫時執行，跳過檔案上傳時的自動處理
+        # 檔案上傳時 collection_name 格式為 "file-{file_id}"
+        # 知識庫時 collection_name 格式為 "{knowledge_id}" (UUID格式)
+        if collection_name.startswith("file-"):
+            log.info(f"Skipping KM_SELF_RAG processing for file collection: {collection_name}")
+            return
+
+        # 準備檔案資訊
+        file_list = []
+
+        # 按檔案名分組，將同一個檔案的多個文檔片段合併成一個完整的TXT
+        file_groups = defaultdict[Any, list[Any]](list)
+
+        for doc in docs:
+            doc_metadata = getattr(doc, "metadata", {})
+            filename = doc_metadata.get("name", "document")
+            content = getattr(doc, "page_content", "")
+
+            log.info(f"Processing doc: filename={filename}, content_length={len(content)}, content_preview={content[:50]}...")
+
+            if content:
+                file_groups[filename].append(content)
+
+        # 為每個檔案生成一個合併的TXT檔案
+        for filename, contents in file_groups.items():
+            # 合併同檔案的所有內容片段
+            merged_content = "\n".join(contents)
+
+            # 生成唯一檔案名
+            base_filename, _ = os.path.splitext(filename)
+            safe_filename = base_filename.replace("/", "_").replace("\\", "_")
+            unique_id = uuid.uuid4().hex
+            txt_filename = f"{unique_id}_{safe_filename}.txt"
+
+            # 寫入檔案
+            txt_path = PARSE_RESULT_DIR / txt_filename
+            txt_path.write_text(merged_content, encoding="utf-8", newline="\n")
+
+            log.info(f"Written merged file: {txt_path}, filename={filename}, content_length={len(merged_content)}")
+
+            if DOCKER_ENV:
+                # 給KM的絕對路徑
+                parse_file_path_for_km_api = (PARSE_DIR_FOR_API / txt_filename).as_posix()
+                log.info(f"{parse_file_path_for_km_api=}")
+                txt_path = parse_file_path_for_km_api
+
+            file_list.append({
+                "path": str(txt_path),
+                "filename": txt_filename
+            })
+
+        if not file_list:
+            log.warning(f"No content found for KM_SELF_RAG processing in collection: {collection_name}")
+            return
+
+        # # 準備處理請求
+        payload = {
+            "collection_name": collection_name,
+            "file_list": file_list,
+            "language": "en-US"
+        }
+        log.info(f"payload: {payload}")
+
+        url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/process"
+
+        max_wait_time = 3000  # 10 分鐘
+        with httpx.Client(timeout=max_wait_time) as client:
+            # 1. 發送處理請求
+            log.info(f"發送 KM_SELF_RAG 處理請求到: {url}")
+            try:
+                r = client.post(url, json=payload, headers={"Content-Type": "application/json"})
+                r.raise_for_status()
+                result = r.json()
+                task_id = result.get("task_id")
+
+                if not task_id:
+                    log.error(f"API回應缺少 'task_id': {result}")
+                    return
+
+                log.info(f"KM_SELF_RAG 任務已建立，task_id: {task_id}")
+            except Exception as e:
+                log.error(f"發送處理請求失敗: {e}")
+                return
+
+            # 2. 輪詢狀態
+            status_url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/status/{task_id}"
+            poll_interval = 5    # 每 5 秒檢查一次
+            elapsed_time = 0
+
+            while elapsed_time < max_wait_time:
+                try:
+                    status_response = client.get(status_url)
+                    status_response.raise_for_status()
+                    status_data = status_response.json()
+
+                    current_status = status_data.get("status", "unknown")
+                    message = status_data.get("message", "")
+
+                    if current_status == "completed":
+                        log.info(f"KM_SELF_RAG 處理完成！task_id: {task_id}, 總耗時: {elapsed_time}秒")
+                        break
+                    elif current_status == "failed":
+                        log.error(f"KM_SELF_RAG 處理失敗！task_id: {task_id}, 錯誤: {message}")
+                        break
+
+                    # 等待並記錄
+                    log.info(f"等待 KM_SELF_RAG 處理中... 狀態: {current_status}, 已等待: {elapsed_time}秒, 訊息: {message}")
+                    time.sleep(poll_interval)
+                    elapsed_time += poll_interval
+
+                except Exception as poll_error:
+                    log.error(f"輪詢狀態時發生錯誤: {poll_error}")
+                    break
+
+            if elapsed_time >= max_wait_time:
+                log.warning(f"KM_SELF_RAG 處理超時！task_id: {task_id}, 最大等待時間: {max_wait_time}秒")
+
+    except Exception as e:
+        log.error(f"KM_SELF_RAG processing failed for collection {collection_name}: {e}")
+        # 不中斷主要流程，只記錄錯誤
 
 
 class ProcessFileForm(BaseModel):

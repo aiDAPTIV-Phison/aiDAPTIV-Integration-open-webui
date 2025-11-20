@@ -37,6 +37,7 @@ from open_webui.routers.tasks import (
     generate_image_prompt,
     generate_chat_tags,
 )
+from open_webui.routers.files import get_file_by_id
 from open_webui.routers.retrieval import process_web_search, SearchForm
 from open_webui.routers.images import (
     load_b64_image_data,
@@ -959,31 +960,44 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if len(sources) > 0:
         context_string = ""
         citation_idx_map = {}
+        # Mark 原本做法
+        # for source in sources:
+        #     is_tool_result = source.get("tool_result", False)
 
-        for source in sources:
-            is_tool_result = source.get("tool_result", False)
+        #     if "document" in source and not is_tool_result:
+        #         for document_text, document_metadata in zip(
+        #             source["document"], source["metadata"]
+        #         ):
+        #             source_name = source.get("source", {}).get("name", None)
+        #             source_id = (
+        #                 document_metadata.get("source", None)
+        #                 or source.get("source", {}).get("id", None)
+        #                 or "N/A"
+        #             )
 
-            if "document" in source and not is_tool_result:
-                for document_text, document_metadata in zip(
-                    source["document"], source["metadata"]
-                ):
-                    source_name = source.get("source", {}).get("name", None)
-                    source_id = (
-                        document_metadata.get("source", None)
-                        or source.get("source", {}).get("id", None)
-                        or "N/A"
-                    )
+        #             if source_id not in citation_idx_map:
+        #                 citation_idx_map[source_id] = len(citation_idx_map) + 1
 
-                    if source_id not in citation_idx_map:
-                        citation_idx_map[source_id] = len(citation_idx_map) + 1
+        #             context_string += (
+        #                 f'<source id="{citation_idx_map[source_id]}"'
+        #                 + (f' name="{source_name}"' if source_name else "")
+        #                 + f">{document_text}</source>\n"
+        #             )
+        # context_string = context_string.strip()
+        
 
-                    context_string += (
-                        f'<source id="{citation_idx_map[source_id]}"'
-                        + (f' name="{source_name}"' if source_name else "")
+        #新作法
+        relevance_source_index, _ = max(enumerate(source.get('distances',[])+[0] for source in sources), key=lambda x: x[1][0])
+        source_name = sources[relevance_source_index].get("source", {}).get("name", None)
+        file_id = sources[relevance_source_index].get('metadata',[{}])[0].get('file_id', '')
+        if not file_id:
+            file_id = sources[relevance_source_index].get("source", {}).get("id", '')
+        file = await get_file_by_id(id = file_id,user= user)
+        document_text = file.data.get('content')
+        context_string = (
+                        (f'<source name="{source_name}' if source_name else "")
                         + f">{document_text}</source>\n"
-                    )
-
-        context_string = context_string.strip()
+        )
 
         prompt = get_last_user_message(form_data["messages"])
         if prompt is None:
@@ -1012,14 +1026,21 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     form_data["messages"],
                 )
 
-    # If there are citations, add them to the data_items
-    sources = [
-        source
-        for source in sources
-        if source.get("source", {}).get("name", "")
-        or source.get("source", {}).get("id", "")
-    ]
 
+    
+    # If there are citations, add them to the data_items
+    # Mark 原本做法
+    # sources = [
+    #     source
+    #     for source in sources
+    #     if source.get("source", {}).get("name", "")
+    #     or source.get("source", {}).get("id", "")
+    # ]
+
+        
+        # 新作法
+        sources = [sources[relevance_source_index]]
+    
     if len(sources) > 0:
         events.append({"sources": sources})
 

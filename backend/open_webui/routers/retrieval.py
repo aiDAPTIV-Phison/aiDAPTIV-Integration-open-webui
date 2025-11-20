@@ -1441,7 +1441,7 @@ def process_file(
 
                 docs = [
                     Document(
-                        page_content=doc.page_content,
+                        page_content=doc.page_content.replace('\n', ''),
                         metadata={
                             **doc.metadata,
                             "name": file.filename,
@@ -1455,7 +1455,7 @@ def process_file(
             else:
                 docs = [
                     Document(
-                        page_content=file.data.get("content", ""),
+                        page_content=file.data.get("content", "").replace('\n', ''),
                         metadata={
                             **file.meta,
                             "name": file.filename,

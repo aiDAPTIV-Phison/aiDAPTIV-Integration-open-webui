@@ -607,10 +607,15 @@ async def chat_completion_files_handler(
     request: Request, body: dict, user: UserModel
 ) -> tuple[dict, dict[str, list]]:
     sources = []
+    metadata = body.get("metadata", {})
 
-    if files := body.get("metadata", {}).get("files", None):
+    if files := metadata.get("files", None):
         queries = []
         try:
+            # 第一次 LLM 調用：生成查詢
+            query_gen_start = time.time()
+            log.info(f"[TTFT] Starting query generation (first LLM call)")
+
             queries_response = await generate_queries(
                 request,
                 {
@@ -621,6 +626,9 @@ async def chat_completion_files_handler(
                 user,
             )
             queries_response = queries_response["choices"][0]["message"]["content"]
+
+            query_gen_time = round(time.time() - query_gen_start, 2)
+            log.info(f"[TTFT] Query generation completed in {query_gen_time}s")
 
             try:
                 bracket_start = queries_response.find("{")
@@ -642,6 +650,10 @@ async def chat_completion_files_handler(
             queries = [get_last_user_message(body["messages"])]
 
         try:
+            # 執行檢索
+            retrieval_start = time.time()
+            log.info(f"[TTFT] Starting document retrieval with queries: {queries}")
+
             # Offload get_sources_from_items to a separate thread
             loop = asyncio.get_running_loop()
             with ThreadPoolExecutor() as executor:
@@ -672,6 +684,17 @@ async def chat_completion_files_handler(
                         user=user,
                     ),
                 )
+
+            retrieval_time = round(time.time() - retrieval_start, 2)
+            log.info(f"[TTFT] Document retrieval completed in {retrieval_time}s")
+
+            # 重置 TTFT 起點：排除查詢生成和檢索的時間
+            # 只計算第二次 LLM 調用（生成答案）的時間
+            answer_gen_start = time.time()
+            metadata['__ttft_start_time__'] = answer_gen_start
+            body['metadata'] = metadata
+            log.info(f"[TTFT] Reset TTFT start time to {answer_gen_start} (after query generation and retrieval)")
+
         except Exception as e:
             log.exception(e)
 
@@ -733,6 +756,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Pipeline Inlet -> Filter Inlet -> Chat Memory -> Chat Web Search -> Chat Image Generation
     # -> Chat Code Interpreter (Form Data Update) -> (Default) Chat Tools Function Calling
     # -> Chat Files
+
+    # 記錄請求開始時間（這是 TTFT 的真正起點）
+    request_start_time = time.time()
+    metadata['__ttft_start_time__'] = request_start_time  # 將時間傳遞給 response handler
+    log.info(f"[TTFT] Chat request started (process_chat_payload) at {request_start_time}")
 
     form_data = apply_params_to_form_data(form_data, model)
     log.debug(f"form_data: {form_data}")
@@ -984,7 +1012,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         #                 + f">{document_text}</source>\n"
         #             )
         # context_string = context_string.strip()
-        
+
 
         #新作法
         relevance_source_index, _ = max(enumerate(source.get('distances',[])+[0] for source in sources), key=lambda x: x[1][0])
@@ -1027,7 +1055,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 )
 
 
-    
+
     # If there are citations, add them to the data_items
     # Mark 原本做法
     # sources = [
@@ -1037,10 +1065,10 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     #     or source.get("source", {}).get("id", "")
     # ]
 
-        
+
         # 新作法
         sources = [sources[relevance_source_index]]
-    
+
     if len(sources) > 0:
         events.append({"sources": sources})
 
@@ -1063,6 +1091,10 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 async def process_chat_response(
     request, response, form_data, user, metadata, model, events, tasks
 ):
+    # 記錄 response 處理開始時間
+    response_process_start_time = time.time()
+    log.info(f"[TTFT] process_chat_response started at {response_process_start_time}")
+
     async def background_tasks_handler():
         message_map = Chats.get_messages_by_chat_id(metadata["chat_id"])
         message = message_map.get(metadata["message_id"]) if message_map else None
@@ -1441,6 +1473,14 @@ async def process_chat_response(
 
         # Handle as a background task
         async def response_handler(response, events):
+            # 使用從 payload 處理開始時記錄的時間作為 TTFT 起點
+            # 這樣可以包含所有的處理時間（RAG、工具調用、模型等待等）
+            start_time = metadata.get('__ttft_start_time__', time.time())
+            response_handler_start_time = time.time()
+            first_token_received = False  # 追蹤是否已收到第一個 token
+            ttft_value = 0.0  # 儲存 TTFT 值
+            log.info(f"[TTFT] Response handler started at {response_handler_start_time} (request started at {start_time}, elapsed: {round(response_handler_start_time - start_time, 3)}s)")
+
             def serialize_content_blocks(content_blocks, raw=False):
                 content = ""
 
@@ -1852,12 +1892,13 @@ async def process_chat_response(
                             **event,
                         },
                     )
-                now = time.time()
 
                 async def stream_body_handler(response, form_data):
                     nonlocal content
                     nonlocal content_blocks
-                    nonlocal now
+                    nonlocal start_time  # 需要訪問外層的 start_time
+                    nonlocal first_token_received  # 追蹤第一個 token
+                    nonlocal ttft_value  # 儲存 TTFT 值
 
                     response_tool_calls = []
 
@@ -1869,9 +1910,10 @@ async def process_chat_response(
                             or 1
                         ),
                     )
-                    
-                                        
-                    first = True
+
+                    log.info(f"[TTFT] Stream body handler started, first_token_received={first_token_received}")
+                    line_count = 0
+                    raw_data_dump = []  # 收集所有原始數據以便 debug
                     async for line in response.body_iterator:
                         line = line.decode("utf-8") if isinstance(line, bytes) else line
                         data = line
@@ -1886,6 +1928,14 @@ async def process_chat_response(
 
                         # Remove the prefix
                         data = data[len("data:") :].strip()
+
+                        # Debug: 收集前 10 行原始數據
+                        line_count += 1
+                        if line_count <= 10:
+                            current_time = time.time()
+                            elapsed = round(current_time - start_time, 3)
+                            raw_data_dump.append(f"[{elapsed}s] Line #{line_count}: {data[:300] if len(data) > 300 else data}")
+                            log.info(f"[TTFT DEBUG] [{elapsed}s] Raw line #{line_count}: {data[:200] if len(data) > 200 else data}")
 
                         try:
                             data = json.loads(data)
@@ -1937,6 +1987,9 @@ async def process_chat_response(
                                         continue
 
                                     delta = choices[0].get("delta", {})
+                                    # Debug: 記錄 delta 的所有 key
+                                    if delta and not first_token_received:
+                                        log.info(f"[TTFT DEBUG] Delta keys: {list(delta.keys())}, delta content: {str(delta)[:200]}")
                                     delta_tool_calls = delta.get("tool_calls", None)
 
                                     if delta_tool_calls:
@@ -2005,6 +2058,13 @@ async def process_chat_response(
                                         or delta.get("thinking")
                                     )
                                     if reasoning_content:
+                                        log.info(f"[TTFT DEBUG] Received reasoning_content: {reasoning_content[:50] if len(reasoning_content) > 50 else reasoning_content}")
+                                        # 如果這是第一個 token（reasoning），記錄 TTFT
+                                        if not first_token_received:
+                                            ttft_value = round(time.time() - start_time, 2)
+                                            first_token_received = True
+                                            log.info(f"[TTFT] First token (reasoning) received, TTFT={ttft_value}s, content_length={len(reasoning_content)}")
+
                                         if (
                                             not content_blocks
                                             or content_blocks[-1]["type"] != "reasoning"
@@ -2032,9 +2092,28 @@ async def process_chat_response(
                                         }
 
                                     if value:
-                                        if first and value.strip():
-                                            value = f"Time to first token: {round(time.time()-now,2)} s\n{value}"
-                                            first = False
+                                        current_elapsed = round(time.time() - start_time, 3)
+                                        # log.info(f"[TTFT DEBUG] [{current_elapsed}s] Received content value: '{value[:100] if len(value) > 100 else value}', stripped: '{value.strip()[:50] if len(value.strip()) > 50 else value.strip()}', first_token_received={first_token_received}")
+                                        # 如果這是第一個 token（content），記錄 TTFT
+                                        # 過濾掉標籤本身（如 <think>, </think> 等）
+                                        # 只有當收到實際的內容時才計算 TTFT
+                                        stripped_value = value.strip()
+                                        is_tag_only = (
+                                            stripped_value.startswith("<") and stripped_value.endswith(">")
+                                        ) or (
+                                            stripped_value in ["<think>", "</think>", "<thinking>", "</thinking>",
+                                                             "<reason>", "</reason>", "<reasoning>", "</reasoning>"]
+                                        )
+
+                                        log.info(f"[TTFT DEBUG] [{current_elapsed}s] is_tag_only={is_tag_only}, stripped_value='{stripped_value}'")
+
+                                        if not first_token_received and stripped_value and len(stripped_value) > 0 and not is_tag_only:
+                                            ttft_value = round(time.time() - start_time, 2)
+                                            first_token_received = True
+                                            log.info(f"[TTFT] First token (content) received, TTFT={ttft_value}s, content_length={len(value)}, stripped_length={len(value.strip())}, content='{stripped_value[:30]}'")
+                                            # 在第一個 content token 前添加 TTFT 信息
+                                            value = f"Time to first token: {ttft_value} s\n{value}"
+
                                         if (
                                             content_blocks
                                             and content_blocks[-1]["type"]
@@ -2528,7 +2607,30 @@ async def process_chat_response(
                             break
 
                 title = Chats.get_chat_title_by_id(metadata["chat_id"])
-                content_blocks[-1]['content'] += f"\nTotal Time: {round(time.time()-now,2)} s"
+                # 計算總處理時間
+                total_time = round(time.time() - start_time, 2)
+
+                # 記錄最終統計和原始數據 dump
+                log.info(f"[TTFT] Response completed - TTFT={ttft_value}s, Total Time={total_time}s")
+                # if raw_data_dump:
+                #     log.info(f"[TTFT DEBUG] Raw data dump (first 10 lines):")
+                #     for dump_line in raw_data_dump:
+                #         log.info(f"[TTFT DEBUG]   {dump_line}")
+
+                # 如果已經有 TTFT 值，確保它顯示在內容中
+                if ttft_value > 0 and content_blocks:
+                    # 檢查是否第一個 text block 已經包含 TTFT 信息
+                    first_text_block = None
+                    for block in content_blocks:
+                        if block["type"] == "text":
+                            first_text_block = block
+                            break
+
+                    # 如果第一個 text block 沒有包含 TTFT，則添加
+                    if first_text_block and not first_text_block["content"].startswith("Time to first token:"):
+                        first_text_block["content"] = f"Time to first token: {ttft_value} s\n{first_text_block['content']}"
+
+                content_blocks[-1]['content'] += f"\nTotal Time: {total_time} s"
                 data = {
                     "done": True,
                     "content": serialize_content_blocks(content_blocks),

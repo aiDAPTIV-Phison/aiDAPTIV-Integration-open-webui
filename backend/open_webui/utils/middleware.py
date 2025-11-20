@@ -108,6 +108,70 @@ log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
+def clean_timing_info_from_content(content):
+    """
+    從內容中移除計時資訊，避免影響後續的 LLM 對話
+
+    Args:
+        content (str): 包含計時資訊的內容
+
+    Returns:
+        str: 清理後的內容
+    """
+    if not content:
+        return content
+
+    # 移除 Time to first token 行，保留原有的換行結構
+    content = re.sub(r'^Time to first token: \d+\.?\d* s\s*\n?', '', content, flags=re.MULTILINE)
+    content = re.sub(r'\nTime to first token: \d+\.?\d* s\s*\n?', '\n', content, flags=re.MULTILINE)
+
+    # 移除 Total Time 行，保留原有的換行結構
+    content = re.sub(r'^Total Time: \d+\.?\d* s\s*\n?', '', content, flags=re.MULTILINE)
+    content = re.sub(r'\nTotal Time: \d+\.?\d* s\s*\n?', '\n', content, flags=re.MULTILINE)
+
+    # 清理多餘的換行符（將多個連續換行符替換為單個換行符）
+    content = re.sub(r'\n\s*\n', '\n', content)
+
+    # 清理首尾空白
+    content = content.strip()
+
+    return content
+
+
+def clean_timing_info_from_messages(messages):
+    """
+    從訊息列表中移除計時資訊
+
+    Args:
+        messages (list): 訊息列表
+
+    Returns:
+        list: 清理後的訊息列表
+    """
+    cleaned_messages = []
+
+    for message in messages:
+        cleaned_message = message.copy()
+
+        if isinstance(cleaned_message.get("content"), str):
+            cleaned_message["content"] = clean_timing_info_from_content(cleaned_message["content"])
+        elif isinstance(cleaned_message.get("content"), list):
+            # 處理 content 為列表的情況（可能包含多個區塊）
+            cleaned_content = []
+            for item in cleaned_message["content"]:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    cleaned_item = item.copy()
+                    cleaned_item["text"] = clean_timing_info_from_content(item.get("text", ""))
+                    cleaned_content.append(cleaned_item)
+                else:
+                    cleaned_content.append(item)
+            cleaned_message["content"] = cleaned_content
+
+        cleaned_messages.append(cleaned_message)
+
+    return cleaned_messages
+
+
 async def chat_completion_tools_handler(
     request: Request, body: dict, extra_params: dict, user: UserModel, models, tools
 ) -> tuple[dict, dict]:
@@ -126,6 +190,11 @@ async def chat_completion_tools_handler(
         return content
 
     def get_tools_function_calling_payload(messages, task_model_id, content):
+        # 移除計時資訊，避免影響工具函式的提示生成
+        try:
+            messages = clean_timing_info_from_messages(messages)
+        except Exception:
+            pass
         user_message = get_last_user_message(messages)
         history = "\n".join(
             f"{message['role'].upper()}: \"\"\"{message['content']}\"\"\""
@@ -763,6 +832,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     log.info(f"[TTFT] Chat request started (process_chat_payload) at {request_start_time}")
 
     form_data = apply_params_to_form_data(form_data, model)
+    # 立刻清理進入 pipeline 前的使用者訊息，避免一開始就把含計時的訊息流入各種下游呼叫
+    try:
+        if isinstance(form_data, dict) and isinstance(form_data.get("messages"), list):
+            metadata.setdefault("__messages_with_timing__", form_data["messages"])
+            form_data["messages"] = clean_timing_info_from_messages(form_data["messages"])
+    except Exception:
+        pass
     log.debug(f"form_data: {form_data}")
 
     event_emitter = get_event_emitter(metadata)
@@ -1084,6 +1160,18 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 },
             }
         )
+
+    # 在返回前：為 LLM 呼叫準備乾淨版的 messages（移除計時資訊），
+    # 但保留原始含計時資訊版本於 metadata 以供顯示用途
+    try:
+        original_messages = form_data.get("messages", [])
+        metadata.setdefault("__messages_with_timing__", original_messages)
+        form_data["messages"] = clean_timing_info_from_messages(original_messages)
+        log.info(f"[TIMING CLEANUP] Final cleanup applied to {len(form_data['messages'])} messages")
+    except Exception as _e:
+        # 安全失敗：若清理失敗，沿用原始 messages
+        log.warning(f"[TIMING CLEANUP] Failed to clean messages: {_e}")
+        pass
 
     return form_data, metadata, events
 
@@ -1479,6 +1567,13 @@ async def process_chat_response(
             response_handler_start_time = time.time()
             first_token_received = False  # 追蹤是否已收到第一個 token
             ttft_value = 0.0  # 儲存 TTFT 值
+
+            # 標記變量：防止重複添加時間信息
+            ttft_added_to_stream = False  # 追蹤是否已在串流中添加 TTFT
+            ttft_added_to_final = False  # 追蹤是否已在最終內容中添加 TTFT
+            total_time_added = False  # 追蹤是否已添加 Total Time
+            stream_handler_depth = 0  # 追蹤 stream_body_handler 的遞歸深度
+
             log.info(f"[TTFT] Response handler started at {response_handler_start_time} (request started at {start_time}, elapsed: {round(response_handler_start_time - start_time, 3)}s)")
 
             def serialize_content_blocks(content_blocks, raw=False):
@@ -1900,6 +1995,17 @@ async def process_chat_response(
                     nonlocal first_token_received  # 追蹤第一個 token
                     nonlocal ttft_value  # 儲存 TTFT 值
 
+                    # 訪問標記變量
+                    nonlocal ttft_added_to_stream
+                    nonlocal ttft_added_to_final
+                    nonlocal total_time_added
+                    nonlocal stream_handler_depth
+
+                    # 進入函數時增加深度
+                    stream_handler_depth += 1
+                    current_depth = stream_handler_depth
+                    log.info(f"[TTFT] Stream body handler entered, depth={current_depth}")
+
                     response_tool_calls = []
 
                     delta_count = 0
@@ -1911,7 +2017,7 @@ async def process_chat_response(
                         ),
                     )
 
-                    log.info(f"[TTFT] Stream body handler started, first_token_received={first_token_received}")
+                    log.info(f"[TTFT] Stream body handler started, depth={current_depth}, first_token_received={first_token_received}")
                     line_count = 0
                     raw_data_dump = []  # 收集所有原始數據以便 debug
                     async for line in response.body_iterator:
@@ -2105,14 +2211,22 @@ async def process_chat_response(
                                                              "<reason>", "</reason>", "<reasoning>", "</reasoning>"]
                                         )
 
-                                        log.info(f"[TTFT DEBUG] [{current_elapsed}s] is_tag_only={is_tag_only}, stripped_value='{stripped_value}'")
+                                        log.info(f"[TTFT DEBUG] [{current_elapsed}s] is_tag_only={is_tag_only}, stripped_value='{stripped_value}', first_token_received={first_token_received}, ttft_added_to_stream={ttft_added_to_stream}")
 
+                                        # 確保 TTFT 只計算和添加一次
                                         if not first_token_received and stripped_value and len(stripped_value) > 0 and not is_tag_only:
+                                            # 計算 TTFT（只會發生一次，因為之後 first_token_received = True）
                                             ttft_value = round(time.time() - start_time, 2)
                                             first_token_received = True
-                                            log.info(f"[TTFT] First token (content) received, TTFT={ttft_value}s, content_length={len(value)}, stripped_length={len(value.strip())}, content='{stripped_value[:30]}'")
-                                            # 在第一個 content token 前添加 TTFT 信息
-                                            value = f"Time to first token: {ttft_value} s\n{value}"
+                                            log.info(f"[TTFT] First token (content) received, TTFT={ttft_value}s, depth={current_depth}, content_length={len(value)}, stripped_length={len(value.strip())}, content='{stripped_value[:30]}'")
+
+                                            # 只在未添加過時才添加 TTFT 到串流（忽略 depth，因為 depth 可能在 tool calls 後重置）
+                                            if not ttft_added_to_stream:
+                                                value = f"Time to first token: {ttft_value} s\n{value}"
+                                                ttft_added_to_stream = True
+                                                log.info(f"[TTFT] Added TTFT to stream at depth={current_depth}")
+                                            else:
+                                                log.info(f"[TTFT] Skipped adding TTFT to stream (already_added={ttft_added_to_stream}, depth={current_depth})")
 
                                         if (
                                             content_blocks
@@ -2258,6 +2372,10 @@ async def process_chat_response(
 
                     if response.background:
                         await response.background()
+
+                    # 離開函數時減少深度
+                    stream_handler_depth -= 1
+                    log.info(f"[TTFT] Stream body handler exited, new depth={stream_handler_depth}")
 
                 await stream_body_handler(response, form_data)
 
@@ -2411,15 +2529,19 @@ async def process_chat_response(
                     )
 
                     try:
+                        # 清理計時資訊後再發送給 LLM
+                        cleaned_messages = clean_timing_info_from_messages(form_data["messages"])
+                        cleaned_content_blocks_messages = clean_timing_info_from_messages(
+                            convert_content_blocks_to_messages(content_blocks, True)
+                        )
+
                         new_form_data = {
                             "model": model_id,
                             "stream": True,
                             "tools": form_data["tools"],
                             "messages": [
-                                *form_data["messages"],
-                                *convert_content_blocks_to_messages(
-                                    content_blocks, True
-                                ),
+                                *cleaned_messages,
+                                *cleaned_content_blocks_messages,
                             ],
                         }
 
@@ -2578,16 +2700,20 @@ async def process_chat_response(
                         )
 
                         try:
+                            # 清理計時資訊後再發送給 LLM
+                            cleaned_messages = clean_timing_info_from_messages(form_data["messages"])
+                            cleaned_content = clean_timing_info_from_content(
+                                serialize_content_blocks(content_blocks, raw=True)
+                            )
+
                             new_form_data = {
                                 "model": model_id,
                                 "stream": True,
                                 "messages": [
-                                    *form_data["messages"],
+                                    *cleaned_messages,
                                     {
                                         "role": "assistant",
-                                        "content": serialize_content_blocks(
-                                            content_blocks, raw=True
-                                        ),
+                                        "content": cleaned_content,
                                     },
                                 ],
                             }
@@ -2610,27 +2736,45 @@ async def process_chat_response(
                 # 計算總處理時間
                 total_time = round(time.time() - start_time, 2)
 
-                # 記錄最終統計和原始數據 dump
-                log.info(f"[TTFT] Response completed - TTFT={ttft_value}s, Total Time={total_time}s")
+                # 記錄最終統計
+                log.info(f"[TTFT] Response completed - TTFT={ttft_value}s, Total Time={total_time}s, stream_handler_depth={stream_handler_depth}")
                 # if raw_data_dump:
                 #     log.info(f"[TTFT DEBUG] Raw data dump (first 10 lines):")
                 #     for dump_line in raw_data_dump:
                 #         log.info(f"[TTFT DEBUG]   {dump_line}")
 
-                # 如果已經有 TTFT 值，確保它顯示在內容中
-                if ttft_value > 0 and content_blocks:
-                    # 檢查是否第一個 text block 已經包含 TTFT 信息
+                # 確保時間信息只添加一次
+                # 由於已經在串流中添加了 TTFT，這裡只需要確保沒有重複
+                log.info(f"[TTFT] Checking final content: ttft_value={ttft_value}, ttft_added_to_stream={ttft_added_to_stream}, ttft_added_to_final={ttft_added_to_final}")
+
+                # 如果已經在串流中添加過，就不需要再添加到最終內容了
+                if ttft_added_to_stream:
+                    ttft_added_to_final = True
+                    log.info(f"[TTFT] TTFT was already added to stream, skipping final content addition")
+                elif ttft_value > 0 and content_blocks and not ttft_added_to_final:
+                    # 只在沒有添加到串流時才添加到最終內容
                     first_text_block = None
                     for block in content_blocks:
                         if block["type"] == "text":
                             first_text_block = block
                             break
 
-                    # 如果第一個 text block 沒有包含 TTFT，則添加
-                    if first_text_block and not first_text_block["content"].startswith("Time to first token:"):
-                        first_text_block["content"] = f"Time to first token: {ttft_value} s\n{first_text_block['content']}"
+                    if first_text_block:
+                        if not first_text_block["content"].startswith("Time to first token:"):
+                            first_text_block["content"] = f"Time to first token: {ttft_value} s\n{first_text_block['content']}"
+                            ttft_added_to_final = True
+                            log.info(f"[TTFT] Added TTFT to final content (was not in stream)")
+                        else:
+                            ttft_added_to_final = True
+                            log.info(f"[TTFT] TTFT already exists in final content, skipped")
 
-                content_blocks[-1]['content'] += f"\nTotal Time: {total_time} s"
+                # 只添加一次 Total Time
+                if not total_time_added:
+                    content_blocks[-1]['content'] += f"\nTotal Time: {total_time} s"
+                    total_time_added = True
+                    log.info(f"[TTFT] Added Total Time to final content")
+                else:
+                    log.warning(f"[TTFT] Attempted to add Total Time again, but it was already added!")
                 data = {
                     "done": True,
                     "content": serialize_content_blocks(content_blocks),

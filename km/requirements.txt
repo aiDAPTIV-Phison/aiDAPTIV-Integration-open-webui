@@ -1,0 +1,26 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+chromadb==1.0.15
+camelot-py==1.0.0
+pdfplumber==0.11.7
+langchain==0.3.26
+langchain-chroma
+langchain-community
+langchain-core
+langchain-openai
+langchain-text-splitters
+numpy==2.2.6
+pydantic==2.11.7
+sentence-transformers==5.0.0
+torch==2.7.1
+psutil
+loguru
+tiktoken
+pandas
+openpyxl
+PyPDF2
+rank-bm25>=0.2.2
+jieba>=0.42.1
+gguf == 0.17.1
+rank-bm25>=0.2.2
+jieba>=0.42.1

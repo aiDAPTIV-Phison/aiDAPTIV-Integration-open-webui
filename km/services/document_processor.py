@@ -416,7 +416,7 @@ class DocumentProcessor:
         # embeddings = HuggingFaceInferenceAPIEmbeddings(api_url=embedding_url, api_key="empty")
         
         # # http_client = httpx.Client(verify=False)
-        embeddings = OpenAIEmbeddings(base_url=embedding_url, api_key="EMPTY", 
+        embeddings = OpenAIEmbeddings(model = settings.EMBEDDING_MODEL_NAME, base_url=embedding_url, api_key="EMPTY", 
                                    tiktoken_enabled=False, check_embedding_ctx_length=False )
 
         # 使用內存向量數據庫，無需刪除現有數據庫
@@ -449,13 +449,16 @@ class DocumentProcessor:
             
             if batch_idx == 0:
                 # 第一批：創建新的向量存儲（僅內存）
-                vectorstore = Chroma.from_documents(
-                    documents=batch_documents,
-                    embedding=embeddings,
-                    collection_name=collection_name,
-                    ids=batch_ids,
-                    persist_directory=persist_directory
-                )
+                try:
+                    vectorstore = Chroma.from_documents(
+                        documents=batch_documents,
+                        embedding=embeddings,
+                        collection_name=collection_name,
+                        ids=batch_ids,
+                        persist_directory=persist_directory
+                    )
+                except Exception as e:
+                    pass
             else:
                 # 後續批次：添加到現有向量存儲，指定 ids
                 vectorstore.add_documents(

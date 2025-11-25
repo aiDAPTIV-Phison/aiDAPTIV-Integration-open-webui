@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     LLM_MODEL_PATH: str= "/home/pti-dgxspark1/Desktop/70B_Q4_llama/Meta-Llama-3.3-70B-Instruct-Q4_K_M.gguf"
     LLM_MODEL_DIR: str = "/home/pti-dgxspark1/Desktop/70B_Q4_llama/Meta-Llama-3.3-70B-Instruct-Q4_K_M.gguf"
     LLM_GGUF: str = "Meta-Llama-3.3-70B-Instruct-Q4_K_M.gguf"
+    LLM_MODEL_NAME: str = "/app/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
     # kv cache prompt
     SYSTEM_PROMPT: str = ""
 
@@ -37,6 +38,7 @@ class Settings(BaseSettings):
     # EMBEDDING_URL: str = "http://localhost:7788/embed"
     # EMBEDDING_URL: str = "http://192.168.68.90:13141/v1/embeddings"
     EMBEDDING_URL: str = "http://localhost:13142/v1"
+    EMBEDDING_MODEL_NAME: str = "http://localhost:13142/v1"
     # EMBEDDING_URL: str = "http://10.102.196.123:18300/v1"
 
     # Search algorithm settings

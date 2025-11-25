@@ -63,7 +63,7 @@ class RAGQueryService:
                 from langchain_openai import OpenAIEmbeddings
                 # embedding_url = "http://10.101.41.128:13142/v1/"
                 logger.info(f"Loading embedding model from API: {settings.EMBEDDING_URL}")
-                self.embedding_model = OpenAIEmbeddings(base_url=settings.EMBEDDING_URL, api_key="empty",
+                self.embedding_model = OpenAIEmbeddings(model = settings.EMBEDDING_MODEL_NAME, base_url=settings.EMBEDDING_URL, api_key="empty",
                                             tiktoken_enabled=False, check_embedding_ctx_length=False )
 
                 logger.info(f"[SUCCESS] Embedding model loaded from API: {settings.EMBEDDING_URL}")

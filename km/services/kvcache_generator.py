@@ -143,6 +143,7 @@ class KVCacheGeneratorService:
             logger.info(f"{messages=}")
 
             request_data = {
+                "model": settings.LLM_MODEL_NAME,
                 "messages": messages,
                 "max_tokens": 2,
                 "temperature": 0,

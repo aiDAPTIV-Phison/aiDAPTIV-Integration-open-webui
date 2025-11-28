@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     API_DEBUG: bool = False
 
     # LLM API settings
-    LLM_API_PORT: int = 7415
+    LLM_API_PORT: int = 13141
     LLM_API_KEY: str = ""
     MAX_TOKENS_PER_GROUP: int = 13000
     LLM_MODEL_PATH: str= "/home/pti-dgxspark1/Desktop/70B_Q4_llama/Meta-Llama-3.3-70B-Instruct-Q4_K_M.gguf"
@@ -57,8 +57,8 @@ class Settings(BaseSettings):
     @property
     def LLM_API_URL(self) -> str:
         """Dynamic LLM API URL based on LLM_API_PORT"""
-        # return f"http://127.0.0.1:{self.LLM_API_PORT}/v1/chat/completions"
-        return "http://localhost:13141/v1/chat/completions"
+        return f"http://127.0.0.1:{self.LLM_API_PORT}/v1/chat/completions"
+        # return "http://localhost:13141/v1/chat/completions"
         # return "http://192.168.66.145:13141/v1/chat/completions"
 
     @computed_field

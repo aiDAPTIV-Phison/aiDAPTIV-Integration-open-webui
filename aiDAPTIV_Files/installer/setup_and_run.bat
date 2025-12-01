@@ -283,6 +283,10 @@ if not exist "venv_open_webui\" (
 echo [INFO] Checking and installing backend requirements...
 call venv_open_webui\Scripts\activate.bat
 if not errorlevel 1 (
+    :: Set npm environment variables to handle SSL certificate issues
+    set "NPM_CONFIG_STRICT_SSL=false"
+    set "NODE_TLS_REJECT_UNAUTHORIZED=0"
+    
     if exist "requirements.txt" (
         echo [INFO] Installing from requirements.txt...
         pip install -r requirements.txt
@@ -724,7 +728,7 @@ if not exist "%work_path%\logs" mkdir "%work_path%\logs"
 
 :: 5.1. Start Open WebUI backend
 echo [INFO] Starting Open WebUI backend on port %PORT%...
-start "Open WebUI Backend" cmd /k "cd /d "%work_path%\open-webui\backend" && call venv_open_webui\Scripts\activate.bat && set "LLM_API_PORT=%LLM_API_PORT%" && set "LLM_MODEL_NAME=%LLM_MODEL_NAME%" && set "EMBEDDING_URL=%EMBEDDING_URL%" && set "EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%" && set "API_PORT=%API_PORT%" && set "MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%" && set "LLM_GGUF=%LLM_GGUF%" && set "LLM_MODEL_DIR=%LLM_MODEL_DIR%" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && uv run uvicorn open_webui.main:app --port %PORT% --host 0.0.0.0 --reload"
+start "Open WebUI Backend" cmd /k "cd /d "%work_path%\open-webui\backend" && call venv_open_webui\Scripts\activate.bat && set "VIRTUAL_ENV=%work_path%\open-webui\backend\venv_open_webui" && set "LLM_API_PORT=%LLM_API_PORT%" && set "LLM_MODEL_NAME=%LLM_MODEL_NAME%" && set "EMBEDDING_URL=%EMBEDDING_URL%" && set "EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%" && set "API_PORT=%API_PORT%" && set "MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%" && set "LLM_GGUF=%LLM_GGUF%" && set "LLM_MODEL_DIR=%LLM_MODEL_DIR%" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && set "NPM_CONFIG_STRICT_SSL=false" && set "NODE_TLS_REJECT_UNAUTHORIZED=0" && uv run --no-project uvicorn open_webui.main:app --port %PORT% --host 0.0.0.0 --reload"
 
 :: Wait a moment before starting the second service
 :: Use ping to wait 3 seconds (doesn't require PATH)
@@ -732,7 +736,7 @@ ping 127.0.0.1 -n 4 >nul 2>&1
 
 :: 5.2. Start KM service
 echo [INFO] Starting KM service on port %API_PORT%...
-start "KM Service" cmd /k "cd /d "%work_path%\open-webui\km" && call venv_km\Scripts\activate.bat && set "LLM_API_PORT=%LLM_API_PORT%" && set "LLM_MODEL_NAME=%LLM_MODEL_NAME%" && set "EMBEDDING_URL=%EMBEDDING_URL%" && set "EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%" && set "API_PORT=%API_PORT%" && set "MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%" && set "LLM_GGUF=%LLM_GGUF%" && set "LLM_MODEL_DIR=%LLM_MODEL_DIR%" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && uv run api.py"
+start "KM Service" cmd /k "cd /d "%work_path%\open-webui\km" && call venv_km\Scripts\activate.bat && set "VIRTUAL_ENV=%work_path%\open-webui\km\venv_km" && set "LLM_API_PORT=%LLM_API_PORT%" && set "LLM_MODEL_NAME=%LLM_MODEL_NAME%" && set "EMBEDDING_URL=%EMBEDDING_URL%" && set "EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%" && set "API_PORT=%API_PORT%" && set "MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%" && set "LLM_GGUF=%LLM_GGUF%" && set "LLM_MODEL_DIR=%LLM_MODEL_DIR%" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && uv run --no-project api.py"
 
 echo.
 echo ========================================

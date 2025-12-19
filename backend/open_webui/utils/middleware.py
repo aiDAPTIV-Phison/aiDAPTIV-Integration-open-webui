@@ -137,6 +137,10 @@ def clean_timing_info_from_content(content):
     content = re.sub(r'^Total Time: \d+\.?\d* s\s*\n?', '', content, flags=re.MULTILINE)
     content = re.sub(r'\nTotal Time: \d+\.?\d* s\s*\n?', '\n', content, flags=re.MULTILINE)
 
+    # 移除 Token Rate 行，保留原有的換行結構
+    content = re.sub(r'^Token Rate: \d+\.?\d* tokens\/s\s*\n?', '', content, flags=re.MULTILINE)
+    content = re.sub(r'\nToken Rate: \d+\.?\d* tokens\/s\s*\n?', '\n', content, flags=re.MULTILINE)
+
     # 清理首尾空白
     content = content.strip()
 

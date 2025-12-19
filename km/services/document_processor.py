@@ -416,8 +416,9 @@ class DocumentProcessor:
         # embeddings = HuggingFaceInferenceAPIEmbeddings(api_url=embedding_url, api_key="empty")
         
         # # http_client = httpx.Client(verify=False)
-        embeddings = OpenAIEmbeddings(model = settings.EMBEDDING_MODEL_NAME, base_url=embedding_url, api_key="EMPTY", 
-                                   tiktoken_enabled=False, check_embedding_ctx_length=False )
+        embeddings = OpenAIEmbeddings(model = settings.EMBEDDING_MODEL_NAME, base_url=settings.EMBEDDING_URL, api_key="empty",
+                tiktoken_enabled=False, check_embedding_ctx_length=False,
+                encoding_format="float" )
 
         # 使用內存向量數據庫，無需刪除現有數據庫
         

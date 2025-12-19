@@ -357,30 +357,54 @@ echo Environment Configuration
 echo ========================================
 echo.
 
+:: 3.0. Check for config.txt
+set "USE_CONFIG_FILE=0"
+set "CONFIG_FILE=%work_path%\config.txt"
+if exist "%CONFIG_FILE%" (
+    echo [INFO] Found config.txt in current directory
+    echo.
+    set /p "USE_CONFIG=Do you want to load configuration from config.txt? (y/n): "
+    if /i "!USE_CONFIG!"=="y" (
+        echo [INFO] Loading configuration from config.txt...
+        call :ReadConfigFile
+        if errorlevel 1 (
+            echo [ERROR] Failed to read config.txt, using manual input instead
+            set "USE_CONFIG_FILE=0"
+        ) else (
+            set "USE_CONFIG_FILE=1"
+            echo [INFO] Configuration loaded successfully
+            echo.
+        )
+    ) else (
+        echo [INFO] Using manual input
+        echo.
+    )
+) else (
+    echo [INFO] No config.txt found, using manual input
+    echo.
+)
+
 :: 3.1. LLM Model Setting
 echo ===== LLM Model Setting =====
 echo.
 
-:INPUT_LLM_API_PORT
-set /p "LLM_API_PORT=LLM_API_PORT (Hint: The port you start the LLM Model. e.g. 13141): "
-if "%LLM_API_PORT%"=="" (
-    echo [ERROR] LLM_API_PORT cannot be empty
-    goto :INPUT_LLM_API_PORT
+:INPUT_LLM_URL
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] LLM_URL from config: !LLM_URL!
+) else (
+    set /p "LLM_URL=LLM_URL (Hint: The endpoint you start the LLM Model. e.g. http://127.0.0.1:13141/v1): "
+)
+if "!LLM_URL!"=="" (
+    echo [ERROR] LLM_URL cannot be empty
+    set "USE_CONFIG_FILE=0"
+    goto :INPUT_LLM_URL
 )
 
-:INPUT_LLM_MODEL_NAME
-echo.
-set /p "LLM_MODEL_NAME=LLM_MODEL_NAME (Hint: You can find it in http://localhost:%LLM_API_PORT%/models.): "
-if "%LLM_MODEL_NAME%"=="" (
-    echo [ERROR] LLM_MODEL_NAME cannot be empty
-    goto :INPUT_LLM_MODEL_NAME
-)
 
 :: 3.1.3. Verify LLM API connection
 echo.
 echo [INFO] Testing LLM API connection...
-echo [INFO] Endpoint: http://localhost:%LLM_API_PORT%/v1/chat/completions
-echo [INFO] Model: %LLM_MODEL_NAME%
+echo [INFO] Endpoint: !LLM_URL!/chat/completions
 echo [INFO] Please wait, this may take a few seconds...
 
 :: Refresh environment variables before testing (in case Python was just installed)
@@ -401,13 +425,13 @@ set "TEMP_SCRIPT=%TEMP%\llm_test_%RANDOM%.ps1"
     echo $ErrorActionPreference = 'Stop'
     echo try {
     echo     $body = @{
-    echo         model = '%LLM_MODEL_NAME%'
+    echo         model = ''
     echo         messages = @(@{ role = 'user'; content = 'What is the capital of France?' }^)
     echo         temperature = 0
     echo         max_tokens = 2
     echo         cache_prompt = $true
     echo     } ^| ConvertTo-Json -Depth 10
-    echo     $response = Invoke-RestMethod -Uri 'http://localhost:%LLM_API_PORT%/v1/chat/completions' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
+    echo     $response = Invoke-RestMethod -Uri '!LLM_URL!/chat/completions' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
     echo     exit 0
     echo } catch {
     echo     exit 1
@@ -429,13 +453,13 @@ if !LLM_TEST_ERROR! EQU 9009 (
         echo $ErrorActionPreference = 'Stop'
         echo try {
         echo     $body = @{
-        echo         model = '%LLM_MODEL_NAME%'
+        echo         model = ''
         echo         messages = @(@{ role = 'user'; content = 'What is the capital of France?' }^)
         echo         temperature = 0
         echo         max_tokens = 2
         echo         cache_prompt = $true
         echo     } ^| ConvertTo-Json -Depth 10
-        echo     $response = Invoke-RestMethod -Uri 'http://localhost:%LLM_API_PORT%/v1/chat/completions' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
+        echo     $response = Invoke-RestMethod -Uri '!LLM_URL!/chat/completions' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
         echo     exit 0
         echo } catch {
         echo     exit 1
@@ -456,8 +480,7 @@ if !LLM_TEST_ERROR! EQU 0 (
 echo [ERROR] ========================================
 echo [ERROR] Failed to connect to LLM API
 echo [ERROR] ========================================
-echo [ERROR] Endpoint: http://localhost:%LLM_API_PORT%/v1/chat/completions
-echo [ERROR] Model: %LLM_MODEL_NAME%
+echo [ERROR] Endpoint: !LLM_URL!/chat/completions
 echo [ERROR] Error Code: !LLM_TEST_ERROR!
 if !LLM_TEST_ERROR! EQU 9009 (
     echo.
@@ -470,18 +493,20 @@ if !LLM_TEST_ERROR! EQU 9009 (
 )
 echo.
 echo [INFO] Please check:
-echo        1. LLM server is running on port %LLM_API_PORT%
-echo        2. Model name is correct (check http://localhost:%LLM_API_PORT%/v1/models)
+echo        1. LLM server is running on port !LLM_URL!
+echo        2. Model name is correct (check !LLM_URL!/models)
 echo        3. Server is accessible from this machine
 echo        4. Firewall or antivirus is not blocking the connection
 echo.
 echo [INFO] To see detailed error, run this command manually:
-echo        powershell -Command "Invoke-RestMethod -Uri 'http://localhost:%LLM_API_PORT%/v1/chat/completions' -Method Post -ContentType 'application/json' -Body '{\"model\":\"%LLM_MODEL_NAME%\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}]}'"
+echo        powershell -Command "Invoke-RestMethod -Uri '!LLM_URL!/chat/completions' -Method Post -ContentType 'application/json' -Body (@{model='';messages=@(@{role='user';content='test'})} | ConvertTo-Json -Compress)"
 echo.
 set /p "RETRY_LLM=Do you want to re-enter LLM settings? (y/n): "
 if /i "!RETRY_LLM!"=="y" (
     echo.
-    goto :INPUT_LLM_API_PORT
+    :: Clear USE_CONFIG_FILE flag to allow manual input
+    set "USE_CONFIG_FILE=0"
+    goto :INPUT_LLM_URL
 )
 echo [WARNING] Continuing without verification...
 echo.
@@ -494,32 +519,29 @@ echo ===== Embedding Model Setting =====
 echo.
 
 :INPUT_EMBEDDING_URL
-set /p "EMBEDDING_URL=EMBEDDING_URL (Hint: The endpoint you start the Embedding Model. e.g. http://localhost:13142/v1): "
-if "%EMBEDDING_URL%"=="" (
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] EMBEDDING_URL from config: !EMBEDDING_URL!
+) else (
+    set /p "EMBEDDING_URL=EMBEDDING_URL (Hint: The endpoint you start the Embedding Model. e.g. http://127.0.0.1:13142/v1): "
+)
+if "!EMBEDDING_URL!"=="" (
     echo [ERROR] EMBEDDING_URL cannot be empty
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_EMBEDDING_URL
 )
 
-:INPUT_EMBEDDING_MODEL_NAME
-echo.
-set /p "EMBEDDING_MODEL_NAME=EMBEDDING_MODEL_NAME (Hint: You can find it in %EMBEDDING_URL%.): "
-if "%EMBEDDING_MODEL_NAME%"=="" (
-    echo [ERROR] EMBEDDING_MODEL_NAME cannot be empty
-    goto :INPUT_EMBEDDING_MODEL_NAME
-)
 
 :: 3.2.3. Verify Embedding API connection
 echo.
 echo [INFO] Testing Embedding API connection...
 :: Check if EMBEDDING_URL ends with slash
-set "EMBEDDING_TEST_URL=%EMBEDDING_URL%"
+set "EMBEDDING_TEST_URL=!EMBEDDING_URL!"
 if "!EMBEDDING_TEST_URL:~-1!"=="/" (
     set "EMBEDDING_TEST_URL=!EMBEDDING_TEST_URL!embeddings"
 ) else (
     set "EMBEDDING_TEST_URL=!EMBEDDING_TEST_URL!/embeddings"
 )
 echo [INFO] Endpoint: !EMBEDDING_TEST_URL!
-echo [INFO] Model: %EMBEDDING_MODEL_NAME%
 echo [INFO] Please wait, this may take a few seconds...
 
 :: Refresh environment variables before testing (in case Python was just installed)
@@ -540,7 +562,7 @@ set "TEMP_SCRIPT=%TEMP%\embedding_test_%RANDOM%.ps1"
     echo $ErrorActionPreference = 'Stop'
     echo try {
     echo     $body = @{
-    echo         model = '%EMBEDDING_MODEL_NAME%'
+    echo         model = ''
     echo         input = 'What is the capital of France?'
     echo     } ^| ConvertTo-Json -Depth 10
     echo     $response = Invoke-RestMethod -Uri '!EMBEDDING_TEST_URL!' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
@@ -565,7 +587,7 @@ if !EMBEDDING_TEST_ERROR! EQU 9009 (
         echo $ErrorActionPreference = 'Stop'
         echo try {
         echo     $body = @{
-        echo         model = '%EMBEDDING_MODEL_NAME%'
+        echo         model = ''
         echo         input = 'What is the capital of France?'
         echo     } ^| ConvertTo-Json -Depth 10
         echo     $response = Invoke-RestMethod -Uri '!EMBEDDING_TEST_URL!' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
@@ -590,7 +612,6 @@ echo [ERROR] ========================================
 echo [ERROR] Failed to connect to Embedding API
 echo [ERROR] ========================================
 echo [ERROR] Endpoint: !EMBEDDING_TEST_URL!
-echo [ERROR] Model: %EMBEDDING_MODEL_NAME%
 echo [ERROR] Error Code: !EMBEDDING_TEST_ERROR!
 if !EMBEDDING_TEST_ERROR! EQU 9009 (
     echo.
@@ -604,17 +625,19 @@ if !EMBEDDING_TEST_ERROR! EQU 9009 (
 echo.
 echo [INFO] Please check:
 echo        1. Embedding server is running
-echo        2. EMBEDDING_URL is correct: %EMBEDDING_URL%
+echo        2. EMBEDDING_URL is correct: !EMBEDDING_URL!
 echo        3. Model name is correct
 echo        4. Server is accessible from this machine
 echo        5. Firewall or antivirus is not blocking the connection
 echo.
 echo [INFO] To see detailed error, run this command manually:
-echo        powershell -Command "Invoke-RestMethod -Uri '!EMBEDDING_TEST_URL!' -Method Post -ContentType 'application/json' -Body '{\"model\":\"%EMBEDDING_MODEL_NAME%\",\"input\":\"test\"}'"
+echo        powershell -Command "Invoke-RestMethod -Uri '!EMBEDDING_TEST_URL!' -Method Post -ContentType 'application/json' -Body (@{model='';input='test'} | ConvertTo-Json -Compress)"
 echo.
 set /p "RETRY_EMBEDDING=Do you want to re-enter Embedding settings? (y/n): "
 if /i "!RETRY_EMBEDDING!"=="y" (
     echo.
+    :: Clear USE_CONFIG_FILE flag to allow manual input
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_EMBEDDING_URL
 )
 echo [WARNING] Continuing without verification...
@@ -627,44 +650,73 @@ echo.
 echo ===== KM Setting =====
 echo.
 
+
+set CONTINUE_API_PORT=y
 :INPUT_API_PORT
-set /p "API_PORT=API_PORT (Hint: The port you want to start KM. Should be unused. e.g. 18299): "
-if "%API_PORT%"=="" (
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] API_PORT from config: !API_PORT!
+) else (
+    if not "!CONTINUE_API_PORT!"=="y" (
+        set /p "API_PORT=API_PORT (Hint: The port you want to start KM. Should be unused. e.g. 18299): "
+    ) else (
+        set /a API_PORT=18299
+    )
+)
+if "!API_PORT!"=="" (
     echo [ERROR] API_PORT cannot be empty
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_API_PORT
 )
 :: Check if port is in use
 where netstat >nul 2>&1
 if not errorlevel 1 (
-    netstat -ano 2>nul | findstr /C:":%API_PORT% " >nul 2>&1
+    netstat -ano 2>nul | findstr /C:":!API_PORT! " >nul 2>&1
     if not errorlevel 1 (
-        echo [WARNING] Port %API_PORT% is already in use!
+        echo [WARNING] Port !API_PORT! is already in use!
         set /p "CONTINUE_API_PORT=Do you want to use this port anyway? (y/n): "
-        if /i not "!CONTINUE_API_PORT!"=="y" goto :INPUT_API_PORT
+        if /i not "!CONTINUE_API_PORT!"=="y" (
+            set "USE_CONFIG_FILE=0"
+            goto :INPUT_API_PORT
+        )
     )
 )
 
 :INPUT_MAX_TOKENS_PER_GROUP
 echo.
-set /p "MAX_TOKENS_PER_GROUP=MAX_TOKENS_PER_GROUP (Hint: The token length each group, should be smaller than context size of LLM. e.g. 13000): "
-if "%MAX_TOKENS_PER_GROUP%"=="" (
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] MAX_TOKENS_PER_GROUP from config: !MAX_TOKENS_PER_GROUP!
+) else (
+    set /p "MAX_TOKENS_PER_GROUP=MAX_TOKENS_PER_GROUP (Hint: The token length each group, should be smaller than context size of LLM. Advice using 80%% of context size of LLM. e.g. 13000): "
+)
+if "!MAX_TOKENS_PER_GROUP!"=="" (
     echo [ERROR] MAX_TOKENS_PER_GROUP cannot be empty
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_MAX_TOKENS_PER_GROUP
 )
 
 :INPUT_LLM_GGUF
 echo.
-set /p "LLM_GGUF=LLM_GGUF (Hint: The file name of GGUF LLM weight file. e.g. Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf): "
-if "%LLM_GGUF%"=="" (
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] LLM_GGUF from config: !LLM_GGUF!
+) else (
+    set /p "LLM_GGUF=LLM_GGUF (Hint: The file name of GGUF LLM weight file. e.g. Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf): "
+)
+if "!LLM_GGUF!"=="" (
     echo [ERROR] LLM_GGUF cannot be empty
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_LLM_GGUF
 )
 
 :INPUT_LLM_MODEL_DIR
 echo.
-set /p "LLM_MODEL_DIR=LLM_MODEL_DIR (Hint: The path of GGUF LLM weight file.. e.g. C:\Program Files\models): "
-if "%LLM_MODEL_DIR%"=="" (
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] LLM_MODEL_DIR from config: !LLM_MODEL_DIR!
+) else (
+    set /p "LLM_MODEL_DIR=LLM_MODEL_DIR (Hint: The path of GGUF LLM weight file.. e.g. C:\Program Files\models): "
+)
+if "!LLM_MODEL_DIR!"=="" (
     echo [ERROR] LLM_MODEL_DIR cannot be empty
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_LLM_MODEL_DIR
 )
 
@@ -673,20 +725,34 @@ echo.
 echo ===== OpenWebUI Setting =====
 echo.
 
+
+set CONTINUE_PORT=y
 :INPUT_PORT
-set /p "PORT=PORT (Hint: The port you want to start OpenWebUI. Should be unused. e.g. 8080): "
-if "%PORT%"=="" (
+if "!USE_CONFIG_FILE!"=="1" (
+    echo [INFO] PORT from config: !PORT!
+) else (
+    if not "!CONTINUE_PORT!"=="y" (
+        set /p "PORT=PORT (Hint: The port you want to start OpenWebUI. Should be unused. e.g. 8080): "
+    ) else (
+        set /a PORT=8080
+    )
+)
+if "!PORT!"=="" (
     echo [ERROR] PORT cannot be empty
+    set "USE_CONFIG_FILE=0"
     goto :INPUT_PORT
 )
 :: Check if port is in use
 where netstat >nul 2>&1
 if not errorlevel 1 (
-    netstat -ano 2>nul | findstr /C:":%PORT% " >nul 2>&1
+    netstat -ano 2>nul | findstr /C:":!PORT! " >nul 2>&1
     if not errorlevel 1 (
-        echo [WARNING] Port %PORT% is already in use!
+        echo [WARNING] Port !PORT! is already in use!
         set /p "CONTINUE_PORT=Do you want to use this port anyway? (y/n): "
-        if /i not "!CONTINUE_PORT!"=="y" goto :INPUT_PORT
+        if /i not "!CONTINUE_PORT!"=="y" (
+            set "USE_CONFIG_FILE=0"
+            goto :INPUT_PORT
+        )
     )
 )
 
@@ -697,24 +763,28 @@ echo Setting Environment Variables
 echo ========================================
 echo.
 
-set "OPENAI_API_BASE_URL=http://localhost:%LLM_API_PORT%/v1"
+set "OPENAI_API_BASE_URL=!LLM_URL!"
 set "OPEN_WEBUI_DIR=%work_path%\open-webui\backend\data\parse_txt"
 set "KM_RESULT_DIR=%work_path%\open-webui\km"
-set "KM_SELF_RAG_API_BASE_URL=http://localhost:%API_PORT%"
+set "KM_SELF_RAG_API_BASE_URL=http://127.0.0.1:!API_PORT!"
 
-echo LLM_API_PORT=%LLM_API_PORT%
-echo LLM_MODEL_NAME=%LLM_MODEL_NAME%
-echo EMBEDDING_URL=%EMBEDDING_URL%
-echo EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%
-echo API_PORT=%API_PORT%
-echo MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%
-echo LLM_GGUF=%LLM_GGUF%
-echo LLM_MODEL_DIR=%LLM_MODEL_DIR%
+echo LLM_URL=!LLM_URL!
+echo EMBEDDING_URL=!EMBEDDING_URL!
+echo API_PORT=!API_PORT!
+echo MAX_TOKENS_PER_GROUP=!MAX_TOKENS_PER_GROUP!
+echo LLM_GGUF=!LLM_GGUF!
+echo LLM_MODEL_DIR=!LLM_MODEL_DIR!
 echo OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%
 echo OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%
 echo KM_RESULT_DIR=%KM_RESULT_DIR%
 echo KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%
-echo PORT=%PORT%
+echo PORT=!PORT!
+echo.
+
+:: 4.5. Save configuration to config.txt
+echo [INFO] Saving configuration to config.txt...
+call :WriteConfigFile
+echo [INFO] Configuration saved successfully
 echo.
 
 :: 5. Launch services
@@ -727,24 +797,24 @@ echo.
 if not exist "%work_path%\logs" mkdir "%work_path%\logs"
 
 :: 5.1. Start Open WebUI backend
-echo [INFO] Starting Open WebUI backend on port %PORT%...
-start "Open WebUI Backend" cmd /k "cd /d "%work_path%\open-webui\backend" && call venv_open_webui\Scripts\activate.bat && set "VIRTUAL_ENV=%work_path%\open-webui\backend\venv_open_webui" && set "LLM_API_PORT=%LLM_API_PORT%" && set "LLM_MODEL_NAME=%LLM_MODEL_NAME%" && set "EMBEDDING_URL=%EMBEDDING_URL%" && set "EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%" && set "API_PORT=%API_PORT%" && set "MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%" && set "LLM_GGUF=%LLM_GGUF%" && set "LLM_MODEL_DIR=%LLM_MODEL_DIR%" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && set "NPM_CONFIG_STRICT_SSL=false" && set "NODE_TLS_REJECT_UNAUTHORIZED=0" && uv run --no-project uvicorn open_webui.main:app --port %PORT% --host 0.0.0.0 --reload"
+echo [INFO] Starting Open WebUI backend on port !PORT!...
+start "Open WebUI Backend" cmd /k "cd /d "%work_path%\open-webui\backend" && call venv_open_webui\Scripts\activate.bat && set "VIRTUAL_ENV=%work_path%\open-webui\backend\venv_open_webui" && set "LLM_URL=!LLM_URL!" && set "LLM_MODEL_NAME=" && set "EMBEDDING_URL=!EMBEDDING_URL!" && set "EMBEDDING_MODEL_NAME=" && set "API_PORT=!API_PORT!" && set "MAX_TOKENS_PER_GROUP=!MAX_TOKENS_PER_GROUP!" && set "LLM_GGUF=!LLM_GGUF!" && set "LLM_MODEL_DIR=!LLM_MODEL_DIR!" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && set "NPM_CONFIG_STRICT_SSL=false" && set "NODE_TLS_REJECT_UNAUTHORIZED=0" && uv run --no-project uvicorn open_webui.main:app --port !PORT! --host 0.0.0.0 --reload"
 
 :: Wait a moment before starting the second service
 :: Use ping to wait 3 seconds (doesn't require PATH)
 ping 127.0.0.1 -n 4 >nul 2>&1
 
 :: 5.2. Start KM service
-echo [INFO] Starting KM service on port %API_PORT%...
-start "KM Service" cmd /k "cd /d "%work_path%\open-webui\km" && call venv_km\Scripts\activate.bat && set "VIRTUAL_ENV=%work_path%\open-webui\km\venv_km" && set "LLM_API_PORT=%LLM_API_PORT%" && set "LLM_MODEL_NAME=%LLM_MODEL_NAME%" && set "EMBEDDING_URL=%EMBEDDING_URL%" && set "EMBEDDING_MODEL_NAME=%EMBEDDING_MODEL_NAME%" && set "API_PORT=%API_PORT%" && set "MAX_TOKENS_PER_GROUP=%MAX_TOKENS_PER_GROUP%" && set "LLM_GGUF=%LLM_GGUF%" && set "LLM_MODEL_DIR=%LLM_MODEL_DIR%" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && uv run --no-project api.py"
+echo [INFO] Starting KM service on port !API_PORT!...
+start "KM Service" cmd /k "cd /d "%work_path%\open-webui\km" && call venv_km\Scripts\activate.bat && set "VIRTUAL_ENV=%work_path%\open-webui\km\venv_km" && set "LLM_URL=!LLM_URL!" && set "LLM_MODEL_NAME=" && set "EMBEDDING_URL=!EMBEDDING_URL!" && set "EMBEDDING_MODEL_NAME=" && set "API_PORT=!API_PORT!" && set "MAX_TOKENS_PER_GROUP=!MAX_TOKENS_PER_GROUP!" && set "LLM_GGUF=!LLM_GGUF!" && set "LLM_MODEL_DIR=!LLM_MODEL_DIR!" && set "OPENAI_API_BASE_URL=%OPENAI_API_BASE_URL%" && set "OPEN_WEBUI_DIR=%OPEN_WEBUI_DIR%" && set "KM_RESULT_DIR=%KM_RESULT_DIR%" && set "KM_SELF_RAG_API_BASE_URL=%KM_SELF_RAG_API_BASE_URL%" && uv run --no-project api.py"
 
 echo.
 echo ========================================
 echo Services Started Successfully!
 echo ========================================
 echo.
-echo Open WebUI: http://localhost:%PORT%
-echo KM Service: http://localhost:%API_PORT%
+echo Open WebUI: http://127.0.0.1:!PORT!
+echo KM Service: http://127.0.0.1:!API_PORT!
 echo.
 echo Two console windows have been opened for each service.
 echo Close those windows to stop the services.
@@ -758,5 +828,59 @@ exit /b 0
 for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SysPATH=%%b"
 for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPATH=%%b"
 set "PATH=%SysPATH%;%UserPATH%"
+exit /b 0
+
+:: Function to read configuration from config.txt
+:ReadConfigFile
+if not exist "%CONFIG_FILE%" (
+    echo [ERROR] Config file not found: %CONFIG_FILE%
+    exit /b 1
+)
+
+set "CONFIG_READ_ERROR=0"
+for /f "usebackq tokens=1,* delims==" %%a in ("%CONFIG_FILE%") do (
+    set "CONFIG_KEY=%%a"
+    set "CONFIG_VALUE=%%b"
+    :: Remove leading/trailing spaces from key
+    for /f "tokens=*" %%k in ("!CONFIG_KEY!") do set "CONFIG_KEY=%%k"
+    :: Remove leading/trailing spaces from value
+    for /f "tokens=*" %%v in ("!CONFIG_VALUE!") do set "CONFIG_VALUE=%%v"
+    
+    if "!CONFIG_KEY!"=="LLM_URL" set "LLM_URL=!CONFIG_VALUE!"
+    if "!CONFIG_KEY!"=="EMBEDDING_URL" set "EMBEDDING_URL=!CONFIG_VALUE!"
+    if "!CONFIG_KEY!"=="API_PORT" set "API_PORT=!CONFIG_VALUE!"
+    if "!CONFIG_KEY!"=="MAX_TOKENS_PER_GROUP" set "MAX_TOKENS_PER_GROUP=!CONFIG_VALUE!"
+    if "!CONFIG_KEY!"=="LLM_GGUF" set "LLM_GGUF=!CONFIG_VALUE!"
+    if "!CONFIG_KEY!"=="LLM_MODEL_DIR" set "LLM_MODEL_DIR=!CONFIG_VALUE!"
+    if "!CONFIG_KEY!"=="PORT" set "PORT=!CONFIG_VALUE!"
+)
+
+:: Validate that all required variables are set
+if "!LLM_URL!"=="" set "CONFIG_READ_ERROR=1"
+if "!EMBEDDING_URL!"=="" set "CONFIG_READ_ERROR=1"
+if "!API_PORT!"=="" set "CONFIG_READ_ERROR=1"
+if "!MAX_TOKENS_PER_GROUP!"=="" set "CONFIG_READ_ERROR=1"
+if "!LLM_GGUF!"=="" set "CONFIG_READ_ERROR=1"
+if "!LLM_MODEL_DIR!"=="" set "CONFIG_READ_ERROR=1"
+if "!PORT!"=="" set "CONFIG_READ_ERROR=1"
+
+if !CONFIG_READ_ERROR! EQU 1 (
+    echo [ERROR] Config file is missing required variables
+    exit /b 1
+)
+
+exit /b 0
+
+:: Function to write configuration to config.txt
+:WriteConfigFile
+(
+    echo LLM_URL=!LLM_URL!
+    echo EMBEDDING_URL=!EMBEDDING_URL!
+    echo API_PORT=!API_PORT!
+    echo MAX_TOKENS_PER_GROUP=!MAX_TOKENS_PER_GROUP!
+    echo LLM_GGUF=!LLM_GGUF!
+    echo LLM_MODEL_DIR=!LLM_MODEL_DIR!
+    echo PORT=!PORT!
+) > "%CONFIG_FILE%"
 exit /b 0
 

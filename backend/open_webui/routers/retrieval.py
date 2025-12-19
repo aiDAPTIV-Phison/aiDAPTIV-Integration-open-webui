@@ -1536,8 +1536,8 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
 
         url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/process"
 
-        max_wait_time = 3000  # 10 分鐘
-        with httpx.Client(timeout=max_wait_time) as client:
+        # max_wait_time = 3000  # 10 分鐘
+        with httpx.Client(timeout=None) as client:
             # 1. 發送處理請求
             log.info(f"發送 KM_SELF_RAG 處理請求到: {url}")
             try:
@@ -1557,10 +1557,10 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
 
             # 2. 輪詢狀態
             status_url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/status/{task_id}"
-            poll_interval = 5    # 每 5 秒檢查一次
+            poll_interval = 10    # 每 10 秒檢查一次
             elapsed_time = 0
 
-            while elapsed_time < max_wait_time:
+            while True:
                 try:
                     status_response = client.get(status_url)
                     status_response.raise_for_status()
@@ -1580,13 +1580,16 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
                     log.info(f"等待 KM_SELF_RAG 處理中... 狀態: {current_status}, 已等待: {elapsed_time}秒, 訊息: {message}")
                     time.sleep(poll_interval)
                     elapsed_time += poll_interval
-
+                except httpx.RequestError as e:
+                    log.error(f"輪詢狀態時發生請求錯誤: {e}, 將重試")
+                    time.sleep(poll_interval)
+                    elapsed_time += poll_interval                    
                 except Exception as poll_error:
                     log.error(f"輪詢狀態時發生錯誤: {poll_error}")
                     break
 
-            if elapsed_time >= max_wait_time:
-                log.warning(f"KM_SELF_RAG 處理超時！task_id: {task_id}, 最大等待時間: {max_wait_time}秒")
+            # if elapsed_time >= max_wait_time:
+            #     log.warning(f"KM_SELF_RAG 處理超時！task_id: {task_id}, 最大等待時間: {max_wait_time}秒")
 
     except Exception as e:
         log.error(f"KM_SELF_RAG processing failed for collection {collection_name}: {e}")

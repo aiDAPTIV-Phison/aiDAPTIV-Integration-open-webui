@@ -2022,6 +2022,7 @@ async def process_chat_response(
                 ("<Thought>", "</Thought>"),
                 ("<|begin_of_thought|>", "<|end_of_thought|>"),
                 ("◁think▷", "◁/think▷"),
+                ("<|channel|>", "<|end|><|start|>assistant<|channel|>final<|message|>"),
             ]
 
             code_interpreter_tags = [("<code_interpreter>", "</code_interpreter>")]

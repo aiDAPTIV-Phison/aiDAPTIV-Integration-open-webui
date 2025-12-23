@@ -2267,6 +2267,29 @@ async def process_chat_response(
                                             ttft_value = round(current_time - start_time, 2)
                                             first_token_received = True
                                             first_content_token_time = current_time
+                                            
+                                            # 確保第一個 Text Block 存在，並在其中添加 TTFT
+                                            first_text_block = None
+                                            for block in content_blocks:
+                                                if block["type"] == "text":
+                                                    first_text_block = block
+                                                    break
+                                            
+                                            # 如果沒有 text block，創建一個
+                                            if first_text_block is None:
+                                                first_text_block = {
+                                                    "type": "text",
+                                                    "content": "",
+                                                }
+                                                # 插入到最前面（在 reasoning block 之前）
+                                                content_blocks.insert(0, first_text_block)
+                                            
+                                            # 在第一個 Text Block 中添加 TTFT（如果還沒添加）
+                                            if not ttft_added_to_stream:
+                                                if not first_text_block["content"].startswith("### 🟢Time to first token:"):
+                                                    first_text_block["content"] = f"### 🟢Time to first token: {ttft_value} s\n{first_text_block['content']}"
+                                                ttft_added_to_stream = True
+                                                log.debug(f"[TTFT] Added TTFT to first text block (reasoning token), TTFT={ttft_value}s")
                                         
                                         # 追蹤 reasoning token
                                         last_content_token_time = current_time
@@ -2322,11 +2345,28 @@ async def process_chat_response(
                                             first_content_token_time = current_time  # 記錄第一個 content token 時間
                                             log.debug(f"[TTFT] First token (content) received, TTFT={ttft_value}s, depth={current_depth}, content_length={len(value)}, stripped_length={len(value.strip())}, content='{stripped_value[:30]}'")
 
-                                            # 只在未添加過時才添加 TTFT 到串流（忽略 depth，因為 depth 可能在 tool calls 後重置）
+                                            # 確保第一個 Text Block 存在，並在其中添加 TTFT
+                                            first_text_block = None
+                                            for block in content_blocks:
+                                                if block["type"] == "text":
+                                                    first_text_block = block
+                                                    break
+                                            
+                                            # 如果沒有 text block，創建一個
+                                            if first_text_block is None:
+                                                first_text_block = {
+                                                    "type": "text",
+                                                    "content": "",
+                                                }
+                                                # 插入到最前面
+                                                content_blocks.insert(0, first_text_block)
+                                            
+                                            # 在第一個 Text Block 中添加 TTFT（如果還沒添加）
                                             if not ttft_added_to_stream:
-                                                value = f"### 🟢Time to first token: {ttft_value} s\n{value}"
+                                                if not first_text_block["content"].startswith("### 🟢Time to first token:"):
+                                                    first_text_block["content"] = f"### 🟢Time to first token: {ttft_value} s\n{first_text_block['content']}"
                                                 ttft_added_to_stream = True
-                                                log.debug(f"[TTFT] Added TTFT to stream at depth={current_depth}")
+                                                log.debug(f"[TTFT] Added TTFT to first text block (content token), TTFT={ttft_value}s, depth={current_depth}")
                                             else:
                                                 log.debug(f"[TTFT] Skipped adding TTFT to stream (already_added={ttft_added_to_stream}, depth={current_depth})")
                                         
@@ -2370,7 +2410,6 @@ async def process_chat_response(
                                         content_blocks[-1]["content"] = (
                                             content_blocks[-1]["content"] + value
                                         )
-
                                         if DETECT_REASONING:
                                             content, content_blocks, _ = (
                                                 tag_content_handler(
@@ -2379,7 +2418,7 @@ async def process_chat_response(
                                                     content,
                                                     content_blocks,
                                                 )
-                                            )
+                                            )                                            
 
                                         if DETECT_CODE_INTERPRETER:
                                             content, content_blocks, end = (
@@ -2926,8 +2965,16 @@ async def process_chat_response(
                             ttft_added_to_final = True
 
                 # 只添加一次 Total Time 和 Decode TP
+                # 找到最後一個 Text Block（不是 reasoning block）
                 if not total_time_added:
-                    content_blocks[-1]['content'] += f"\nTotal Time: {total_time} s\nToken Rate: {decode_tp_text}"
+                    last_text_block = {
+                        "type": "text",
+                        "content": "",
+                    }
+                    content_blocks.append(last_text_block)
+                    
+                    # 將 total time 和 token rate 添加到最後一個 Text Block
+                    last_text_block['content'] += f"\nTotal Time: {total_time} s\nToken Rate: {decode_tp_text}"
                     total_time_added = True
                 data = {
                     "done": True,

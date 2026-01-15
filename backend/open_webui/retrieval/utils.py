@@ -895,7 +895,35 @@ def get_sources_from_items(
                 if item.get("legacy"):
                     collection_names.append(f"{item['id']}")
                 else:
-                    collection_names.append(f"file-{item['id']}")
+                    
+                    # Check if we should use KM RAG API for collection retrieval
+                    if RAG_SELF_KM and queries:
+                        # Try KM RAG API first
+                        api_result = call_km_rag_api(
+                            collection_name=f"file-{item['id']}",
+                            question=queries[0],  # Use first query (user's last message)
+                            k=k
+                        )
+                        if api_result is not None:
+                            # API call successful, use the result
+                            query_result = api_result
+                            log.info(f"Using KM RAG API result for collection file-{item['id']}")
+                        elif KM_SELF_RAG_API_FALLBACK:
+                            # API failed but fallback is enabled, continue with vector search
+                            log.info(f"KM RAG API failed, falling back to vector search for collection file-{item['id']}")
+                            if item.get("legacy"):
+                                collection_names = item.get("collection_names", [])
+                            else:
+                                collection_names.append(f"file-{item['id']}")
+                        else:
+                            # API failed and fallback is disabled, set empty result
+                            log.warning(f"KM RAG API failed and fallback disabled for collection file-{item['id']}")
+                            query_result = {
+                                "documents": [[]],
+                                "metadatas": [[]]
+                            }
+                    else:
+                        collection_names.append(f"file-{item['id']}")
 
         elif item.get("type") == "collection":
             if (

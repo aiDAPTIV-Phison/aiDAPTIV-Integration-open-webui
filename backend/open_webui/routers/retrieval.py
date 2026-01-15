@@ -1471,12 +1471,6 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
             original_name = collection_name
             log.info(f"collection_name: {collection_name}")
 
-        # 只在添加到知識庫時執行，跳過檔案上傳時的自動處理
-        # 檔案上傳時 collection_name 格式為 "file-{file_id}"
-        # 知識庫時 collection_name 格式為 "{knowledge_id}" (UUID格式)
-        if collection_name.startswith("file-"):
-            log.info(f"Skipping KM_SELF_RAG processing for file collection: {collection_name}")
-            return
 
         # 準備檔案資訊
         file_list = []

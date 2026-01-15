@@ -459,7 +459,7 @@ class DocumentProcessor:
                         persist_directory=persist_directory
                     )
                 except Exception as e:
-                    pass
+                    print(f"Error creating vector database: {e}")
             else:
                 # 後續批次：添加到現有向量存儲，指定 ids
                 vectorstore.add_documents(

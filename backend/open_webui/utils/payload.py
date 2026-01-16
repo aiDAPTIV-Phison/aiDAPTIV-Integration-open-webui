@@ -33,7 +33,7 @@ def apply_model_system_prompt_to_body(
     system = prompt_template(system, **template_params)
 
     form_data["messages"] = add_or_update_system_message(
-        system, form_data.get("messages", [])
+        system, form_data.get("messages", []), append=True
     )
     return form_data
 

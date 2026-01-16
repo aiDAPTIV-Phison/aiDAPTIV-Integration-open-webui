@@ -675,7 +675,7 @@ async def chat_image_generation_handler(
 
     if system_message_content:
         form_data["messages"] = add_or_update_system_message(
-            system_message_content, form_data["messages"]
+            system_message_content, form_data["messages"], append=True
         )
 
     return form_data

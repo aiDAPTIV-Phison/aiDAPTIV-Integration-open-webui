@@ -1458,6 +1458,8 @@ async def process_chat_response(
 
                 if "error" in response_data:
                     error = response_data["error"].get("detail", response_data["error"])
+                    if error.get("n_prompt_tokens") and error.get("n_ctx") and error.get("n_prompt_tokens") > error.get("n_ctx"):
+                        error['message'] = f'LLM Exception: {error.get("message")} (User Input: {error.get("n_prompt_tokens")}, Context Size Limit: {error.get("n_ctx")})'
                     Chats.upsert_message_to_chat_by_id_and_message_id(
                         metadata["chat_id"],
                         metadata["message_id"],

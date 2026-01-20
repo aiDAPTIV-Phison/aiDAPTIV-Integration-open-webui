@@ -1213,6 +1213,7 @@
 									bind:value={RAGConfig.FILE_MAX_COUNT}
 									autocomplete="off"
 									min="0"
+									readonly
 								/>
 							</Tooltip>
 						</div>

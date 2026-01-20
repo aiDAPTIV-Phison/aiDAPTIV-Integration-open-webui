@@ -2306,7 +2306,7 @@ RAG_FILE_MAX_COUNT = PersistentConfig(
     (
         int(os.environ.get("RAG_FILE_MAX_COUNT"))
         if os.environ.get("RAG_FILE_MAX_COUNT")
-        else None
+        else 1
     ),
 )
 

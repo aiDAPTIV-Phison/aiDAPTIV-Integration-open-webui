@@ -37,7 +37,7 @@ if parent_dir not in sys.path:
 from config import settings
 from kv_cache_content import KVcacheContentHandler
 
-print(settings)
+
 @dataclass
 class ProcessingConfig:
     """文檔處理配置"""

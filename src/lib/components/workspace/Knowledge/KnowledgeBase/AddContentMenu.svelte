@@ -14,6 +14,7 @@
 	const i18n = getContext('i18n');
 
 	export let onClose: Function = () => {};
+	export let disabled: boolean = false;
 
 	let show = false;
 </script>
@@ -27,12 +28,15 @@
 	}}
 	align="end"
 >
-	<Tooltip content={$i18n.t('Add Content')}>
+	<Tooltip content={disabled ? $i18n.t('Upload in progress...') : $i18n.t('Add Content')}>
 		<button
-			class=" p-1.5 rounded-xl hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition font-medium text-sm flex items-center space-x-1"
+			class=" p-1.5 rounded-xl hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition font-medium text-sm flex items-center space-x-1 {disabled ? 'opacity-50 cursor-not-allowed' : ''}"
+			{disabled}
 			on:click={(e) => {
 				e.stopPropagation();
-				show = true;
+				if (!disabled) {
+					show = true;
+				}
 			}}
 		>
 			<svg

@@ -1542,12 +1542,18 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
 
                 if not task_id:
                     log.error(f"API回應缺少 'task_id': {result}")
-                    return
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"API回應缺少 'task_id': {result}",
+                    )
 
                 log.info(f"KM_SELF_RAG 任務已建立，task_id: {task_id}")
             except Exception as e:
-                log.error(f"發送處理請求失敗: {e}")
-                return
+                log.error(f"發送處理請求給KM失敗: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"發送處理請求給KM失敗: {e}",
+                )
 
             # 2. 輪詢狀態
             status_url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/status/{task_id}"
@@ -1587,6 +1593,10 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
 
     except Exception as e:
         log.error(f"KM_SELF_RAG processing failed for collection {collection_name}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"KM_SELF_RAG processing failed for collection {collection_name}: {e}",
+        )
         # 不中斷主要流程，只記錄錯誤
 
 
@@ -1741,7 +1751,6 @@ def process_file(
         )
 
         hash = calculate_sha256_string(text_content)
-        Files.update_file_hash_by_id(file.id, hash)
 
         if not request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
             try:
@@ -1759,6 +1768,7 @@ def process_file(
                 )
 
                 if result:
+                    Files.update_file_hash_by_id(file.id, hash)
                     Files.update_file_metadata_by_id(
                         file.id,
                         {
@@ -1775,6 +1785,7 @@ def process_file(
             except Exception as e:
                 raise e
         else:
+            Files.update_file_hash_by_id(file.id, hash)
             return {
                 "status": True,
                 "collection_name": None,

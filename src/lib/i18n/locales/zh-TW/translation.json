@@ -1436,6 +1436,8 @@
 	"Upload Audio": "上傳音訊",
 	"Upload directory": "上傳目錄",
 	"Upload files": "上傳檔案",
+	"Upload in progress...": "上傳中...",
+	"Upload in progress, please wait previous job...": "上傳中，請稍候再上傳...",
 	"Upload Files": "上傳檔案",
 	"Upload Pipeline": "上傳管線",
 	"Upload Progress": "上傳進度",

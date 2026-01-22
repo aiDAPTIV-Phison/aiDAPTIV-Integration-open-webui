@@ -76,6 +76,7 @@
 	let showAccessControlModal = false;
 
 	let inputFiles = null;
+	let isUploading = false;
 
 	let filteredItems = [];
 	$: if (knowledge && knowledge.files) {
@@ -200,9 +201,15 @@
 	};
 
 	const uploadDirectoryHandler = async () => {
+		if (isUploading) {
+			toast.warning($i18n.t('Upload in progress, please wait previous job...'));
+			return;
+		}
+
 		// Check if File System Access API is supported
 		const isFileSystemAccessSupported = 'showDirectoryPicker' in window;
 
+		isUploading = true;
 		try {
 			if (isFileSystemAccessSupported) {
 				// Modern browsers (Chrome, Edge) implementation
@@ -213,6 +220,8 @@
 			}
 		} catch (error) {
 			handleUploadError(error);
+		} finally {
+			isUploading = false;
 		}
 	};
 
@@ -519,13 +528,23 @@
 		e.preventDefault();
 		dragged = false;
 
+		if (isUploading) {
+			toast.warning($i18n.t('Upload in progress, please wait previous job...'));
+			return;
+		}
+
 		if (e.dataTransfer?.types?.includes('Files')) {
 			if (e.dataTransfer?.files) {
 				const inputFiles = e.dataTransfer?.files;
 
 				if (inputFiles && inputFiles.length > 0) {
-					for (const file of inputFiles) {
-						await uploadFileHandler(file);
+					isUploading = true;
+					try {
+						for (const file of inputFiles) {
+							await uploadFileHandler(file);
+						}
+					} finally {
+						isUploading = false;
 					}
 				} else {
 					toast.error($i18n.t(`File not found.`));
@@ -642,9 +661,18 @@
 
 <AddTextContentModal
 	bind:show={showAddTextContentModal}
-	on:submit={(e) => {
-		const file = createFileFromText(e.detail.name, e.detail.content);
-		uploadFileHandler(file);
+	on:submit={async (e) => {
+		if (isUploading) {
+			toast.warning($i18n.t('Upload in progress, please wait previous job...'));
+			return;
+		}
+		isUploading = true;
+		try {
+			const file = createFileFromText(e.detail.name, e.detail.content);
+			await uploadFileHandler(file);
+		} finally {
+			isUploading = false;
+		}
 	}}
 />
 
@@ -654,10 +682,18 @@
 	type="file"
 	multiple
 	hidden
+	disabled={isUploading}
 	on:change={async () => {
+		if (isUploading) return;
+
 		if (inputFiles && inputFiles.length > 0) {
-			for (const file of inputFiles) {
-				await uploadFileHandler(file);
+			isUploading = true;
+			try {
+				for (const file of inputFiles) {
+					await uploadFileHandler(file);
+				}
+			} finally {
+				isUploading = false;
 			}
 
 			inputFiles = null;
@@ -875,7 +911,9 @@
 
 								<div>
 									<AddContentMenu
+										disabled={isUploading}
 										on:upload={(e) => {
+											if (isUploading) return;
 											if (e.detail.type === 'directory') {
 												uploadDirectoryHandler();
 											} else if (e.detail.type === 'text') {
@@ -885,6 +923,7 @@
 											}
 										}}
 										on:sync={(e) => {
+											if (isUploading) return;
 											showSyncConfirmModal = true;
 										}}
 									/>

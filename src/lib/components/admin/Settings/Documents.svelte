@@ -744,6 +744,7 @@
 								</div>
 								<div class="flex items-center relative">
 									<select
+										disabled
 										class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
 										bind:value={embeddingEngine}
 										placeholder="Select an embedding model engine"

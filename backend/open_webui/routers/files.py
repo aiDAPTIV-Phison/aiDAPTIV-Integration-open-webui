@@ -191,11 +191,10 @@ def upload_file(
             except Exception as e:
                 log.exception(e)
                 log.error(f"Error processing file: {file_item.id}")
-                file_item = FileModelResponse(
-                    **{
-                        **file_item.model_dump(),
-                        "error": str(e.detail) if hasattr(e, "detail") else str(e),
-                    }
+                
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e),
                 )
 
         if file_item:
@@ -210,7 +209,7 @@ def upload_file(
         log.exception(e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT("Error uploading file"),
+            detail=str(e),
         )
 
 

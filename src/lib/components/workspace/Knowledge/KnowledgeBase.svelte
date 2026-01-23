@@ -194,9 +194,13 @@
 				await addFileHandler(uploadedFile.id);
 			} else {
 				toast.error($i18n.t('Failed to upload file.'));
+				// 移除上傳失敗的檔案
+				knowledge.files = knowledge.files.filter((item) => item.itemId !== tempItemId);
 			}
 		} catch (e) {
 			toast.error(`${e}`);
+			// 移除上傳失敗的檔案
+			knowledge.files = knowledge.files.filter((item) => item.itemId !== tempItemId);
 		}
 	};
 

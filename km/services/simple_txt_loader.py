@@ -104,6 +104,7 @@ class SimpleTxtLoader:
                 page_content=content,
                 metadata={
                     'source': filename,
+                    'source_file': filename,  # 添加 source_file 以保持与外部解析器的一致性
                     'file_path': file_path,
                     'loader': 'SimpleTxtLoader',
                 }
@@ -181,6 +182,7 @@ class SimpleTxtLoader:
                 page_content=content,
                 metadata={
                     'source': filename,
+                    'source_file': filename,  # 添加 source_file 以保持与外部解析器的一致性
                     'file_path': file_path,
                     'loader': 'simple_txt_loader',
                     'file_type': file_extension,

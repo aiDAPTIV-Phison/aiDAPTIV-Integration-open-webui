@@ -4,17 +4,23 @@ RAG Query Service for km-for-agent-builder
 """
 import os
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List, Optional
 from loguru import logger
+import sys
+parent_dir = os.path.dirname(os.path.dirname(__file__))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+from config import settings, get_user_prompt_template
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-import chromadb
-from config import settings
+from services.bm25_index_manager import BM25IndexManager
 
-# BM25 imports
+# 為了向後相容，檢查 BM25 是否可用（由 BM25IndexManager 處理實際功能）
 try:
-    from rank_bm25 import BM25Okapi
-    import jieba
+    from rank_bm25 import BM25Okapi  # noqa: F401
+    import jieba  # noqa: F401
     BM25_AVAILABLE = True
 except ImportError:
     BM25_AVAILABLE = False
@@ -23,13 +29,11 @@ except ImportError:
 
 class RAGQueryService:
     """RAG 查詢服務"""
-
-    def __init__(self):
-        self.embedding_model = None
+    
+    def __init__(self, embedding_model: Optional[HuggingFaceEmbeddings] = None):
+        self.embedding_model = embedding_model
         self.current_model_path = None
-        self.collection_cache = {}
-        self.bm25_index = None
-        self.bm25_documents = []
+        self.bm25_manager = BM25IndexManager()  # BM25 索引管理器
         # 優先讀取環境變數，如果為空再使用 settings 設定
         env_search_algorithm = os.getenv('SEARCH_ALGORITHM', '').strip()
         if env_search_algorithm:
@@ -38,539 +42,456 @@ class RAGQueryService:
         else:
             self.search_algorithm = settings.SEARCH_ALGORITHM.lower()
             logger.info(f"Using search algorithm from settings: {self.search_algorithm}")
-
+        
         # 驗證搜尋演算法設定
         if self.search_algorithm not in ['semantic', 'bm25']:
             logger.warning(f"Invalid search algorithm '{self.search_algorithm}', defaulting to 'semantic'")
             self.search_algorithm = 'semantic'
-
+        
         if self.search_algorithm == 'bm25' and not BM25_AVAILABLE:
             logger.warning("BM25 requested but not available, falling back to semantic search")
             self.search_algorithm = 'semantic'
-
-    def _init_embedding_model(self):
-        """初始化嵌入模型"""
-        if self.embedding_model is None:
-            try:
-                from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-
-                # logger.info(f"Loading embedding model from API: {settings.EMBEDDING_URL}")
-                # self.embedding_model = HuggingFaceInferenceAPIEmbeddings(
-                #     api_url=settings.EMBEDDING_URL,
-                #     api_key='empty'
-                # )
-
-                from langchain_openai import OpenAIEmbeddings
-                # embedding_url = "http://10.101.41.128:13142/v1/"
-                logger.info(f"Loading embedding model from API: {settings.EMBEDDING_URL}")
-                self.embedding_model = OpenAIEmbeddings(model = settings.EMBEDDING_MODEL_NAME, base_url=settings.EMBEDDING_URL, api_key="empty",
-                tiktoken_enabled=False, check_embedding_ctx_length=False,
-                encoding_format="float" )
-
-                logger.info(f"[SUCCESS] Embedding model loaded from API: {settings.EMBEDDING_URL}")
-            except Exception as e:
-                logger.exception("[ERROR] Failed to load embedding model from API")
-                # 如果 API 載入失敗，回退到本地模型
-                try:
-                    from langchain_community.embeddings import HuggingFaceEmbeddings
-                    logger.info("Falling back to local HuggingFace model")
-                    self.embedding_model = HuggingFaceEmbeddings(
-                        model_name="sentence-transformers/all-MiniLM-L6-v2",
-                        model_kwargs={'device': 'cpu'},
-                        encode_kwargs={'normalize_embeddings': True}
-                    )
-                    logger.info("[SUCCESS] Local embedding model loaded as fallback")
-                except Exception as fallback_e:
-                    logger.exception("[ERROR] Failed to load fallback embedding model")
-                    raise fallback_e
-
+        
+        if embedding_model == None:
+            self.search_algorithm = 'bm25'
+    
     def _get_collection(self, collection_name: str, chroma_path: str = None):
-        """獲取或創建 Chroma collection (帶緩存) - 參考 km-for-agent-builder-client 的實現"""
-        if chroma_path is None:
-            # 嘗試多個可能的路徑
-            possible_paths = [
-                settings.CHROMA_PATH,  # 使用配置中的 CHROMA_PATH
-                os.path.join(settings.BASE_FOLDER, "chromadb"),
-                os.path.join(settings.BASE_FOLDER, collection_name, "processed_output"),
-                os.path.join(settings.BASE_FOLDER, collection_name, "processed_output", "chromadb")
-            ]
+        """獲取或創建 Chroma collection - 每次都重新讀取"""
 
-            chroma_path = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    chroma_path = path
-                    break
-
-            if chroma_path is None:
-                # 如果都找不到，使用默認路徑
-                chroma_path = os.path.join(settings.BASE_FOLDER, collection_name, "processed_output")
-                logger.warning(f"No ChromaDB path found, using default: {chroma_path}")
-
-        collection_key = f"{chroma_path}#{collection_name}"
-
-        # 如果是相同的 collection，直接返回緩存的實例
-        if collection_key in self.collection_cache:
-            logger.debug(f"Using cached collection: {collection_name}")
-            return self.collection_cache[collection_key]
-
-        # 創建新的 collection
-        logger.info(f"Loading new collection: {collection_name} from path: {chroma_path}")
-        if self.embedding_model is None:
-            self._init_embedding_model()
-
+        chroma_path = os.path.join(settings.BASE_FOLDER, collection_name, "chroma_db")
+        
+        # 每次都重新創建 collection，不使用緩存
+        logger.info(f"Loading collection: {collection_name} from path: {chroma_path}")
+        
         try:
-            # 參考 km-for-agent-builder-client 的實現方式
             collection = Chroma(
                 persist_directory=chroma_path,
                 embedding_function=self.embedding_model,
                 collection_name=collection_name
             )
-            self.collection_cache[collection_key] = collection
+          
             logger.info(f"Successfully loaded collection: {collection_name}")
             return collection
         except Exception as e:
             logger.error(f"Failed to load collection {collection_name} from {chroma_path}: {str(e)}")
             raise e
-
+    
+    def clear_bm25_cache(self, collection_name: str = None):
+        """清除 BM25 緩存"""
+        self.bm25_manager.clear_cache(collection_name)
+    
     def get_available_collections(self) -> List[str]:
-        """獲取可用的 collection 列表 - 直接從 ChromaDB 中查找"""
+        """
+        獲取可用的 collection 列表
+        
+        掃描 BASE_FOLDER 下的所有目錄，找出包含 chroma_db 子目錄的目錄作為可用的 collections
+        
+        Returns:
+            可用的 collection 名稱列表
+        """
         collections = []
-
-        try:
-            # 構建 ChromaDB 的基礎路徑
-            chroma_base_path = os.path.join(settings.CHROMA_PATH)
-
-            # 如果 ChromaDB 目錄不存在，嘗試其他可能的路徑
-            if not os.path.exists(chroma_base_path):
-                # 嘗試在每個 collection 目錄下查找 processed_output/chromadb
-                base_folder = settings.BASE_FOLDER
-                if os.path.exists(base_folder):
-                    for item in os.listdir(base_folder):
-                        item_path = os.path.join(base_folder, item)
-                        if os.path.isdir(item_path):
-                            # 檢查是否有 processed_output 目錄
-                            processed_output_path = os.path.join(item_path, "processed_output")
-                            if os.path.exists(processed_output_path):
-                                # 檢查是否有 chromadb 目錄
-                                chroma_path = os.path.join(processed_output_path, "chromadb")
-                                if os.path.exists(chroma_path):
-                                    chroma_base_path = chroma_path
-                                    break
-
-            logger.info(f"Searching for collections in ChromaDB path: {chroma_base_path}")
-
-            if not os.path.exists(chroma_base_path):
-                logger.warning(f"ChromaDB path does not exist: {chroma_base_path}")
-                return collections
-
-            # 使用 ChromaDB 客戶端直接查詢 collections
-            try:
-                # 創建 ChromaDB 客戶端
-                client = chromadb.PersistentClient(path=chroma_base_path)
-
-                # 獲取所有 collections
-                chroma_collections = client.list_collections()
-
-                for collection in chroma_collections:
-                    collection_name = collection.name
-                    # 檢查 collection 是否有數據
-                    try:
-                        count = collection.count()
-                        if count > 0:
-                            collections.append(collection_name)
-                            logger.info(f"Found collection '{collection_name}' with {count} documents")
-                        else:
-                            logger.debug(f"Collection '{collection_name}' is empty, skipping")
-                    except Exception as e:
-                        logger.warning(f"Error checking collection '{collection_name}': {str(e)}")
-                        # 即使無法檢查數量，也嘗試添加（可能 collection 存在但無法訪問）
-                        collections.append(collection_name)
-
-                logger.info(f"Found {len(collections)} available collections from ChromaDB: {collections}")
-
-            except Exception as chroma_error:
-                logger.error(f"Error accessing ChromaDB: {str(chroma_error)}")
-                # 如果 ChromaDB 訪問失敗，回退到文件系統檢查
-                logger.info("Falling back to file system check...")
-                return self._get_collections_from_filesystem()
-
-        except Exception as e:
-            logger.error(f"Error getting available collections: {str(e)}")
-            return []
-
-        return collections
-
-    def _get_collections_from_filesystem(self) -> List[str]:
-        """從文件系統獲取 collections（備用方法）"""
-        collections = []
-        base_folder = settings.BASE_FOLDER
-
-        if not os.path.exists(base_folder):
+        base_folder = Path(settings.BASE_FOLDER)
+        
+        if not base_folder.exists():
+            logger.warning(f"Base folder does not exist: {base_folder}")
             return collections
-
-        try:
-            for item in os.listdir(base_folder):
-                item_path = os.path.join(base_folder, item)
-                if os.path.isdir(item_path):
-                    # 檢查是否有 processed_output 目錄
-                    processed_output_path = os.path.join(item_path, "processed_output")
-                    if os.path.exists(processed_output_path):
-                        # 檢查是否有 chunks.json 文件
-                        chunks_file = os.path.join(processed_output_path, "chunks.json")
-                        if os.path.exists(chunks_file):
-                            collections.append(item)
-
-            logger.info(f"Found {len(collections)} collections from filesystem: {collections}")
-            return collections
-        except Exception as e:
-            logger.error(f"Error getting collections from filesystem: {str(e)}")
-            return []
-
-    def clear_collection_cache(self, collection_name: str = None):
-        """清除 collection 緩存 - 參考 km-for-agent-builder-client 的實現"""
-        if collection_name:
-            # 只清除特定 collection 的緩存
-            keys_to_remove = [key for key in self.collection_cache.keys() if collection_name in key]
-            for key in keys_to_remove:
-                del self.collection_cache[key]
-            logger.info(f"Cleared collection cache for: {collection_name}")
-        else:
-            # 清除所有 collection 緩存
-            self.collection_cache.clear()
-            logger.info("Cleared all collection caches")
-
-    def _tokenize_text(self, text: str) -> List[str]:
-        """文本分詞 - 支援中英文"""
-        if not BM25_AVAILABLE:
-            return text.split()
-
-        # 使用 jieba 進行中文分詞
-        tokens = jieba.lcut(text)
-        # 過濾掉空白和標點符號
-        tokens = [token.strip() for token in tokens if token.strip() and len(token.strip()) > 1]
-        return tokens
-
-    def _init_bm25_index(self, collection_name: str):
-        """初始化 BM25 索引"""
-        if not BM25_AVAILABLE:
-            logger.error("BM25 not available")
-            return False
-
-        try:
-            # 獲取 ChromaDB collection
-            chroma = self._get_collection(collection_name)
-
-            # 獲取所有文檔
-            all_docs = chroma._collection.get()
-            documents = all_docs['documents']
-            metadatas = all_docs['metadatas']
-
-            if not documents:
-                logger.warning(f"No documents found in collection {collection_name}")
-                return False
-
-            # 為每個文檔創建分詞後的文本
-            tokenized_docs = []
-            self.bm25_documents = []
-
-            for i, doc in enumerate(documents):
-                # 結合文檔內容和元數據進行分詞
-                full_text = doc
-                if metadatas and i < len(metadatas) and metadatas[i]:
-                    metadata = metadatas[i]
-                    if 'source' in metadata:
-                        full_text += f" {metadata['source']}"
-
-                tokenized_doc = self._tokenize_text(full_text)
-                tokenized_docs.append(tokenized_doc)
-                self.bm25_documents.append({
-                    'content': doc,
-                    'metadata': metadatas[i] if metadatas and i < len(metadatas) else {},
-                    'tokens': tokenized_doc
-                })
-
-            # 創建 BM25 索引
-            self.bm25_index = BM25Okapi(tokenized_docs)
-            logger.info(f"BM25 index created for collection {collection_name} with {len(documents)} documents")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to initialize BM25 index: {str(e)}")
-            return False
-
-    def _bm25_search(self, collection_name: str, question: str, k: int = 5) -> List[Dict]:
-        """使用 BM25 進行搜尋"""
-        if not BM25_AVAILABLE:
-            logger.error("BM25 not available")
-            return []
-
-        try:
-            # 如果索引不存在，先初始化
-            if self.bm25_index is None:
-                if not self._init_bm25_index(collection_name):
-                    return []
-
-            # 對查詢進行分詞
-            query_tokens = self._tokenize_text(question)
-
-            # 使用 BM25 進行搜尋
-            scores = self.bm25_index.get_scores(query_tokens)
-
-            # 獲取前 k 個結果
-            top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
-
-            results = []
-            for idx in top_indices:
-                logger.info(f"BM25 score: {idx} {scores[idx]}")
-                if scores[idx] > 0:  # 只返回有分數的結果
-                    doc_info = self.bm25_documents[idx]
-                    results.append({
-                        'content': doc_info['content'],
-                        'metadata': doc_info['metadata'],
-                        'score': scores[idx]
-                    })
-
-            logger.info(f"BM25 search returned {len(results)} results")
-            return results
-
-        except Exception as e:
-            logger.error(f"BM25 search failed: {str(e)}")
-            return []
-
-    def get_rag_context_with_file_content(self, collection_name: str, question: str, k: int = 5) -> Dict:
+        
+        # 掃描 base_folder 下的所有目錄
+        for item in base_folder.iterdir():
+            if item.is_dir():
+                # 檢查是否有 chroma_db 子目錄
+                chroma_db_path = item / "chroma_db"
+                if chroma_db_path.exists() and chroma_db_path.is_dir():
+                    collections.append(item.name)
+                    logger.debug(f"Found collection: {item.name}")
+        
+        logger.info(f"Found {len(collections)} available collections: {collections}")
+        return sorted(collections)
+    
+    def get_rag_context_with_file_content(self, chroma: Chroma, collection_name: str, question: str, 
+                                          k: int = 5, search_algorithm: Optional[str] = None, language: str = "zh-TW") -> Dict:
         """
         根據問題從 chroma 檢索相關內容，並從對應的 merged file 中讀取完整內容來構建聊天消息
-
+        
         Args:
             collection_name: 集合名稱
             question: 用戶問題
             k: 檢索的 top-k 數量
-
+        
         Returns:
             dict: {
                 'filename': str,  # 選中的文件名
-                'file_path': str,  # 文件的完整路徑
                 'chat_messages': List[dict],  # 推理的聊天消息列表
                 'merged_content': str,  # 合併的內容
                 'error': str  # 錯誤信息，成功時為空字符串
             }
         """
         try:
-            # 獲取 collection - 讓 _get_collection 自動尋找正確的路徑
-            chroma = self._get_collection(collection_name)
+            # 根據設定的演算法進行搜尋（允許覆寫）
+            algo = (search_algorithm or self.search_algorithm or 'semantic').lower()
+            if algo not in ['semantic', 'bm25']:
+                logger.warning(f"Invalid search algorithm '{algo}', defaulting to 'semantic'")
+                algo = 'semantic'
+            if algo == 'bm25' and not BM25_AVAILABLE:
+                logger.warning("BM25 requested but not available, falling back to semantic search")
+                algo = 'semantic'
+            
+            # 如果使用 semantic 但沒有 embedding_model，自動切換到 bm25
+            if algo == 'semantic' and self.embedding_model is None:
+                logger.warning("Semantic search requested but embedding_model is None, falling back to BM25")
+                algo = 'bm25'
 
-            # 調試信息：檢查 collection 狀態
-            try:
-                collection_count = chroma._collection.count()
-                logger.info(f"Collection '{collection_name}' contains {collection_count} documents")
-            except Exception as e:
-                logger.warning(f"Could not get collection count: {str(e)}")
-
-            # 根據設定的演算法進行搜尋
-            logger.info(f"Searching for: '{question}' with k={k} using {self.search_algorithm} algorithm")
-
-            if self.search_algorithm == 'bm25':
+            logger.info(f"Searching for: '{question}' with k={k} using {algo} algorithm")
+            
+            if algo == 'bm25':
                 # 使用 BM25 搜尋
-                bm25_results = self._bm25_search(collection_name, question, k)
+                bm25_results = self.bm25_manager.search(chroma, collection_name, question, k, language)
                 if not bm25_results:
-                    return {
-                        'filename': None,
-                        'file_path': None,
-                        'chat_messages': [],
-                        'merged_content': '',
-                        'error': 'no BM25 search results found'
-                    }
-
+                    raise ValueError('no BM25 search results found')
+                self._show_bm25_results(bm25_results)
                 # 轉換 BM25 結果格式以匹配語意搜尋的格式
+                # 使用 SimpleNamespace 創建 Document-like 對象來統一介面
                 results = []
                 for result in bm25_results:
                     # 創建類似 Document 的對象
-                    class MockDocument:
-                        def __init__(self, content, metadata):
-                            self.page_content = content
-                            self.metadata = metadata
-
-                    mock_doc = MockDocument(result['content'], result['metadata'])
-                    results.append((mock_doc, result['score']))
-
+                    doc = SimpleNamespace(
+                        page_content=result['content'],
+                        metadata=result['metadata']
+                    )
+                    # 將 BM25 分數轉換為距離形式（負分數：分數越高，負分數越小，與語意搜尋邏輯一致）
+                    # 語意搜尋：分數越低越好（距離越小）
+                    # BM25：分數越高越好（相關性越高）
+                    # 轉換：使用負分數讓 BM25 分數越高對應距離越小
+                    normalized_score = -result['score']
+                    results.append((doc, normalized_score))
+                
             else:
                 # 使用語意搜尋（默認）
                 results = chroma.similarity_search_with_score(question, k=k)
-
+            
             logger.info(f"Search returned {len(results)} results")
-
+            
             if not results:
-                return {
-                    'filename': None,
-                    'file_path': None,
-                    'chat_messages': [],
-                    'merged_content': '',
-                    'error': 'no search results found'
-                }
+                raise ValueError('no search results found')
 
-            # 統計每個 group_id 的出現次數和相似度總和
-            group_stats = {}
-            all_chunks = []
+            # 顯示搜尋結果
+            self._show_search_results(results, max_chunk_length=150)
 
-            for doc, score in results:
-                group_id = doc.metadata.get('group_id', '')
-                chunk_content = doc.page_content
-                all_chunks.append(chunk_content)
-
-                if group_id:
-                    if group_id not in group_stats:
-                        group_stats[group_id] = {
-                            'count': 0,
-                            'similarity_sum': 0.0,
-                            'scores': [],
-                            'chunks': []
-                        }
-
-                    group_stats[group_id]['count'] += 1
-                    group_stats[group_id]['similarity_sum'] += score
-                    group_stats[group_id]['scores'].append(score)
-                    group_stats[group_id]['chunks'].append(chunk_content)
-                    logger.info(f"group_id: {group_id}, similarity_sum: {group_stats[group_id]['similarity_sum']}, scores: {group_stats[group_id]['scores']}")
-
-            logger.info(f"group_stats: {group_stats}")
-            if not group_stats:
-                return {
-                    'filename': None,
-                    'file_path': None,
-                    'chat_messages': [],
-                    'merged_content': '',
-                    'error': 'no valid group_ids found'
-                }
-
-            # 選擇最相關的 group_id
-            max_count = max(stats['count'] for stats in group_stats.values())
-            top_groups = [group_id for group_id, stats in group_stats.items()
-                         if stats['count'] == max_count]
-
-            if len(top_groups) == 1:
-                selected_group_id = top_groups[0]
-            else:
-                best_group = None
-                best_similarity_sum = float('inf')
-
-                for group_id in top_groups:
-                    similarity_sum = group_stats[group_id]['similarity_sum']
-                    if similarity_sum < best_similarity_sum:
-                        best_similarity_sum = similarity_sum
-                        best_group = group_id
-
-                selected_group_id = best_group
-
+            # 直接選取第一筆資料的 group_id
+            first_doc, first_score = results[0]
+            selected_group_id = first_doc.metadata.get('group_id', '')
+            if not selected_group_id:
+                raise ValueError('no valid group_id found in first result')
+            
+            # 收集所有 chunks
+            all_chunks = [doc.page_content for doc, score in results]
+            
             logger.info(f"Selected group_id: {selected_group_id}")
+            
+            source_filename = selected_group_id
+            logger.info(f"Selected source filename: {source_filename}")
+            merge_file_name = f"{source_filename}.txt"
+            logger.info(f"Selected merge filename: {merge_file_name}")
+            
+            merged_file_folder = os.path.join(settings.BASE_FOLDER, collection_name, "merged_files")
 
-            # 構建 merge file 名稱並尋找實際存在的文件
-            # 使用 selected_group_id 作為 merged file 的基礎名稱
-            group_filename = selected_group_id
-
-            # 構建可能的 merged file 路徑
-            base_paths = [
-                os.path.join(settings.BASE_FOLDER, collection_name, "merged_files"),
-                os.path.join(settings.BASE_FOLDER, collection_name, "processed_output", "merged_files"),
-                os.path.join("tmp", collection_name, "processed_output", "merged_files")
-            ]
-
-            merged_file_path = None
-            merged_file_name = None
-
-            # 嘗試不同的文件名模式
-            possible_names = [
-                f"{group_filename}.txt",
-                f"{group_filename}_merged_part1.txt",
-                f"{group_filename}_merged.txt"
-            ]
-
-            # 在每個可能的基礎路徑中尋找文件
-            for base_path in base_paths:
-                if os.path.exists(base_path):
-                    for name in possible_names:
-                        potential_path = os.path.join(base_path, name)
-                        if os.path.exists(potential_path):
-                            merged_file_path = potential_path
-                            merged_file_name = name
-                            logger.info(f"Found merged file: {merged_file_path}")
-                            break
-                    if merged_file_path:
-                        break
-
-            # 如果都沒找到，使用第一個路徑和第一個文件名作為默認
-            if merged_file_path is None:
-                merged_file_name = possible_names[0]
-                merged_file_path = os.path.join(base_paths[0], merged_file_name)
-                logger.info(f"Using default merged file path: {merged_file_path}")
-            else:
-                logger.info(f"Selected merge filename: {merged_file_name}")
-
-            # 從指定的 txt 檔案中讀取內容
+            # 構建完整的 merged file 路徑
+            merged_file_path = os.path.join(
+                settings.BASE_FOLDER,
+                collection_name,
+                "merged_files",
+                merge_file_name
+            )
+            
+            # 從指定的 txt 檔案中讀取內容作為 chunk
             merged_content = ""
             try:
                 logger.info(f"Attempting to read merged file: {merged_file_path}")
-
+                
                 if os.path.exists(merged_file_path):
                     with open(merged_file_path, 'r', encoding='utf-8') as f:
                         merged_content = f.read().strip()
                     logger.info(f"Successfully read merged file, content length: {len(merged_content)} chars")
                 else:
                     logger.warning(f"Merged file not found: {merged_file_path}")
-                    # 如果找不到 merged file，使用檢索到的 chunks
-                    merged_content = "\n\n".join(all_chunks)
-                    logger.info(f"Using retrieved chunks as fallback, content length: {len(merged_content)} chars")
-
+                    return {
+                        'filename': None,
+                        'chat_messages': [],
+                        'merged_content': '',
+                        'error': 'merge file not found'
+                    }
+                    
             except Exception as file_error:
                 logger.error(f"Failed to read merged file: {str(file_error)}")
-                merged_content = "\n\n".join(all_chunks)
-                logger.info(f"Using retrieved chunks as fallback due to error, content length: {len(merged_content)} chars")
-
+                return {
+                    'filename': None,
+                    'chat_messages': [],
+                    'merged_content': '',
+                    'error': 'merge file not found'
+                }
+            
             # 創建用於推理的聊天消息
             chat_messages = []
-
+            
             # 如果 system prompt 不為空，則添加 system 消息
             if settings.SYSTEM_PROMPT and settings.SYSTEM_PROMPT.strip():
                 chat_messages.append({
                     "role": "system",
                     "content": settings.SYSTEM_PROMPT
                 })
-
+            
             # 添加 user 消息
-            user_prompt_template = settings.USER_PROMPT_TEMPLATE
-            user_content = user_prompt_template.format(chunk=merged_content, query=question)
             chat_messages.append({
-                "role": "user",
-                "content": user_content
+                "role": "user", 
+                "content": get_user_prompt_template(km_lang=language, include_query=True).format(chunk=merged_content, query=question)
             })
-
-            logger.info(f"Suggested merge file name: {merged_file_name if merged_file_name else f'{group_filename}.txt'}")
+            
+            logger.info(f"Suggested merge file name: {merge_file_name}")
             logger.info(f"Generated {len(chat_messages)} chat messages")
             logger.debug(f"Retrieved {len(all_chunks)} document chunks")
+            include_file= chroma.get(where={"group_id": selected_group_id})
+            # logger.info(f'selected_group_id: {selected_group_id} {include_file}')
+            include_file_list = []
+            for file in include_file.get('metadatas'):
+                source_file = file.get('source_file', '')
+                if source_file and source_file not in include_file_list:
+                    include_file_list.append(source_file)
 
             return {
-                'filename': merged_file_name if merged_file_name else f"{group_filename}.txt",
-                'file_path': merged_file_path,
+                'filename': merge_file_name,
+                'include_file_list': include_file_list,
                 'chat_messages': chat_messages,
-                'merged_content': merged_content,
+                'merged_content': merged_content,  # 添加 merged_content 字段
+                'retrieved_chunks': all_chunks,  # 新增：檢索到的原始 chunks
                 'error': ''
             }
-
+                
         except Exception as e:
             logger.error(f"get_rag_context_with_file_content error: {str(e)}")
             return {
                 'filename': None,
-                'file_path': None,
                 'chat_messages': [],
                 'merged_content': '',
                 'error': f'internal error: {str(e)}'
             }
 
-    def generate_openai_payload(self, collection_name: str, query: str, k: int = 5,
-                               stream: bool = True, model: str = "gpt-4",
-                               params: Optional[Dict] = None) -> Dict:
-        """
-        生成標準 OpenAI 格式的 payload
+    def _show_bm25_results(self, results: List[Dict]):
+        simplified_results = []
+        for r in results:
+            md = r.get("metadata", {}) or {}
+            simplified_results.append({
+                "score": r.get("score", 0),
+                "source_file": md.get("source_file"),
+                "group_id": md.get("group_id"),
+            })
 
+        output = {
+            "count": len(simplified_results),
+            "results": simplified_results,
+        }
+        # 使用 logger 避免 Windows 既定編碼（cp950 等）造成 UnicodeEncodeError
+        logger.info(json.dumps(output, ensure_ascii=False, indent=2))
+    
+    def _show_search_results(self, results: List[tuple], max_chunk_length: int = 100):
+        """
+        顯示搜尋結果（語意搜尋或 BM25）
+        
+        Args:
+            results: List[Tuple[doc_like, score]]，doc_like 需具有 metadata 與 page_content
+            max_chunk_length: chunk 內容最大顯示長度，超過會截斷
+        """
+        simplified_results = []
+        for idx, (doc, score) in enumerate(results):
+            chunk_content = doc.page_content
+            # 截斷過長的 chunk 內容
+            if len(chunk_content) > max_chunk_length:
+                chunk_preview = chunk_content[:max_chunk_length] + "..."
+            else:
+                chunk_preview = chunk_content
+            
+            md = doc.metadata or {}
+            simplified_results.append({
+                "index": idx,
+                "score": round(score, 4),
+                "group_id": md.get("group_id", "N/A"),
+                "source_file": md.get("source_file", "N/A"),
+                # "chunk_preview": chunk_preview
+            })
+        
+        output = {
+            "count": len(simplified_results),
+            "results": simplified_results
+        }
+        # 使用 logger 避免 Windows 既定編碼（cp950 等）造成 UnicodeEncodeError
+        logger.info("Search Results:")
+        logger.info(json.dumps(output, ensure_ascii=False, indent=2))
+
+    # def _select_group_id(self, results, algo: str):
+    #     """
+    #     給定檢索結果與演算法，選擇合適的 group_id 並回傳 (selected_group_id, all_chunks)
+    #     results: List[Tuple[doc_like, score]]，doc_like 需具有 metadata 與 page_content
+    #     """
+    #     if not results:
+    #         raise ValueError('no search results found')
+
+    #     # BM25：直接選第一筆 group
+    #     if algo == 'bm25':
+    #         first_group_id = results[0][0].metadata.get('group_id', '')
+    #         if not first_group_id:
+    #             raise ValueError('no valid group_ids found')
+    #         return first_group_id, [results[0][0].page_content]
+
+    #     # Semantic：以次數最多，若並列則取 similarity_sum 較小者
+    #     group_stats = {}
+    #     all_chunks = []
+    #     for doc, score in results:
+    #         group_id = doc.metadata.get('group_id', '')
+    #         chunk_content = doc.page_content
+    #         all_chunks.append(chunk_content)
+    #         if group_id:
+    #             if group_id not in group_stats:
+    #                 group_stats[group_id] = {
+    #                     'count': 0,
+    #                     'similarity_sum': 0.0,
+    #                     'scores': [],
+    #                     'chunks': []
+    #                 }
+    #             group_stats[group_id]['count'] += 1
+    #             group_stats[group_id]['similarity_sum'] += score
+    #             group_stats[group_id]['scores'].append(score)
+    #             group_stats[group_id]['chunks'].append(chunk_content)
+    #             logger.info(f"group_id: {group_id}, similarity_sum: {group_stats[group_id]['similarity_sum']}, scores: {group_stats[group_id]['scores']}")
+
+    #     # logger.info(f"group_stats: {group_stats}")
+    #     if not group_stats:
+    #         raise ValueError('no valid group_ids found')
+
+    #     max_count = max(stats['count'] for stats in group_stats.values())
+    #     top_groups = [group_id for group_id, stats in group_stats.items() if stats['count'] == max_count]
+    #     if len(top_groups) == 1:
+    #         return top_groups[0], all_chunks
+
+    #     best_group = None
+    #     best_similarity_sum = float('inf')
+    #     for group_id in top_groups:
+    #         similarity_sum = group_stats[group_id]['similarity_sum']
+    #         if similarity_sum < best_similarity_sum:
+    #             best_similarity_sum = similarity_sum
+    #             best_group = group_id
+    #     return best_group, all_chunks
+
+    def prepare_rag_messages(self, collection_name: str, query: str, k: int = 5, 
+                            language: str = "zh-TW") -> Dict:
+        """
+        準備 RAG 查詢所需的 messages 和上下文資訊（單一職責：只負責 RAG 檢索和 messages 構建）
+        
+        Args:
+            collection_name: 集合名稱
+            query: 用戶問題
+            k: 檢索的 top-k 數量
+            language: 語言設定
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'messages': List[Dict],  # OpenAI 格式的 messages
+                'message': str,
+                'merged_file': str,
+                'source_files': List[str],
+                'retrieved_chunks': List[str],
+                'merged_content': str,
+                'debug_info': Dict  # 調試資訊
+            }
+        """
+        try:
+            # 獲取 collection
+            chroma = self._get_collection(collection_name)
+            
+            # 獲取 RAG 上下文
+            result = self.get_rag_context_with_file_content(
+                chroma, collection_name, query, k, 
+                search_algorithm=self.search_algorithm, 
+                language=language
+            )
+            
+            if not result.get("success", True) or result.get("error"):
+                return {
+                    'success': False,
+                    'messages': [],
+                    'message': result.get("error", "Failed to get RAG context"),
+                    'merged_file': None,
+                    'source_files': None,
+                    'retrieved_chunks': None,
+                    'merged_content': None,
+                    'debug_info': {}
+                }
+            
+            # 提取文件資訊
+            filename = result.get("filename", "")
+            filename_wo_ext = os.path.splitext(filename)[0] if filename else ""
+            merged_content = result.get("merged_content", "")
+            
+            # 構建 messages
+            messages = []
+            
+            # 添加 system message（如果有）
+            if settings.SYSTEM_PROMPT and settings.SYSTEM_PROMPT.strip():
+                messages.append({
+                    "role": "system",
+                    "content": settings.SYSTEM_PROMPT
+                })
+            
+            # 添加用戶消息
+            user_prompt_template = get_user_prompt_template(km_lang=language, include_query=True)
+            user_content = user_prompt_template.format(
+                chunk=merged_content,
+                query=query
+            )
+            messages.append({
+                "role": "user",
+                "content": user_content
+            })
+            
+            # 構建調試資訊
+            debug_info = {
+                "km_service_used": True,
+                "collection": collection_name,
+                "filename": filename_wo_ext,
+                "original_query": query,
+                "rag_content_length": len(merged_content),
+                "include_file_list": result.get("include_file_list", [])
+            }
+            
+            return {
+                'success': True,
+                'messages': messages,
+                'message': 'RAG messages prepared successfully',
+                'merged_file': filename,
+                'source_files': result.get("include_file_list", []),
+                'retrieved_chunks': result.get("retrieved_chunks", []),
+                'merged_content': merged_content,
+                'debug_info': debug_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Error preparing RAG messages: {e}")
+            return {
+                'success': False,
+                'messages': [],
+                'message': f"Internal error: {str(e)}",
+                'merged_file': None,
+                'source_files': None,
+                'retrieved_chunks': None,
+                'merged_content': None,
+                'debug_info': {}
+            }
+
+    def generate_openai_payload(self, collection_name: str, query: str, k: int = 5, 
+                               stream: bool = True, model: str = "gpt-4", 
+                               params: Optional[Dict] = None, language: str = "zh-TW") -> Dict:
+        """
+        生成標準 OpenAI 格式的 payload（單一職責：只負責組裝和序列化 payload）
+        
         Args:
             collection_name: 集合名稱
             query: 用戶問題
@@ -578,81 +499,68 @@ class RAGQueryService:
             stream: 是否流式輸出
             model: 模型名稱
             params: 額外參數
-
+            language: 語言設定
+        
         Returns:
             dict: {
                 'success': bool,
-                'payload_raw': str,
-                'message': str
+                'payload_raw': str,  # JSON 格式的 payload 字符串
+                'message': str,
+                'merged_file': str,
+                'source_files': List[str],
+                'retrieved_chunks': List[str],
+                'merged_content': str
             }
         """
         try:
-            # 獲取 RAG 上下文
-            result = self.get_rag_context_with_file_content(collection_name, query, k)
-
-            if not result.get("success", True) or result.get("error"):
+            # 使用新的 prepare_rag_messages 函數
+            rag_result = self.prepare_rag_messages(collection_name, query, k, language)
+            
+            if not rag_result['success']:
                 return {
                     'success': False,
                     'payload_raw': '',
-                    'message': result.get("error", "Failed to get RAG context")
+                    'message': rag_result['message'],
+                    'merged_file': None,
+                    'source_files': None,
+                    'retrieved_chunks': None,
+                    'merged_content': None
                 }
-
-            # 提取文件名
-            filename = result.get("filename", "")
-            filename_wo_ext = os.path.splitext(filename)[0] if filename else ""
-
-            # 構建標準的 OpenAI 格式 payload
-            messages = []
-
-            # 添加 system message
-            if settings.SYSTEM_PROMPT and settings.SYSTEM_PROMPT.strip():
-                messages.append({
-                    "role": "system",
-                    "content": settings.SYSTEM_PROMPT
-                })
-
-            # 添加用戶消息
-            user_content = settings.USER_PROMPT_TEMPLATE.format(
-                chunk=result.get("merged_content", ""),
-                query=query
-            )
-            messages.append({
-                "role": "user",
-                "content": user_content
-            })
-
-            # 構建 payload 對象
+            
+            # 構建完整的 payload 對象
             payload_obj = {
                 "stream": stream,
                 "model": model,
-                "messages": messages,
+                "messages": rag_result['messages'],
                 "max_tokens": params.get("max_tokens", 2048) if params else 2048,
                 "temperature": params.get("temperature", 0.7) if params else 0.7,
                 "top_p": params.get("top_p", 1.0) if params else 1.0,
-                "debug_llm_payload": {
-                    "km_service_used": True,
-                    "collection": collection_name,
-                    "filename": filename_wo_ext,
-                    "original_query": query,
-                    "rag_content_length": len(result.get("merged_content", ""))
-                }
+                # "debug_llm_payload": rag_result['debug_info']
             }
-
-            # 轉換為 JSON 字符串
+            
+            # 序列化為 JSON 字符串
             payload_raw = json.dumps(payload_obj, ensure_ascii=False)
-
+            
             return {
                 'success': True,
                 'payload_raw': payload_raw,
-                'message': 'OpenAI payload generated successfully'
+                'message': 'OpenAI payload generated successfully',
+                'merged_file': rag_result['merged_file'],
+                'source_files': rag_result['source_files'],
+                'retrieved_chunks': rag_result['retrieved_chunks'],
+                'merged_content': rag_result['merged_content']
             }
-
+            
         except Exception as e:
             logger.error(f"Error generating OpenAI payload: {e}")
             return {
                 'success': False,
                 'payload_raw': '',
-                'message': f"Internal error: {str(e)}"
+                'message': f"Internal error: {str(e)}",
+                'merged_file': None,
+                'source_files': None,
+                'retrieved_chunks': None,
+                'merged_content': None
             }
 
 if __name__ == '__main__':
@@ -683,40 +591,40 @@ if __name__ == '__main__':
     # 創建 RAG 查詢服務並替換嵌入模型
     rag_query_service = RAGQueryService()
     rag_query_service.embedding_model = TestFakeEmbeddings()
-    print(f"🧪 測試模式：使用 64 維假嵌入模型，搜尋演算法：{rag_query_service.search_algorithm.upper()}")
+    logger.info(f"🧪 測試模式：使用 64 維假嵌入模型，搜尋演算法：{rag_query_service.search_algorithm.upper()}")
 
     collections = rag_query_service.get_available_collections()
-    print(f"Available collections: {collections}")
-
+    logger.info(f"Available collections: {collections}")
+    
     # 簡單的 RAG 查詢測試
     if collections:
         test_collection = collections[0]
-        print(f"\n測試 RAG 查詢 - Collection: {test_collection}")
-
-        # 先檢查 collection 狀態
-        try:
-            chroma = rag_query_service._get_collection(test_collection)
-            count = chroma._collection.count()
-            print(f"Collection 文檔數量: {count}")
-        except Exception as e:
-            print(f"⚠️  無法獲取 collection 狀態: {str(e)}")
-
+        logger.info(f"\n測試 RAG 查詢 - Collection: {test_collection}")
+        
+        # # 先檢查 collection 狀態
+        # try:
+        #     chroma = rag_query_service._get_collection(test_collection)
+        #     count = chroma._collection.count()
+        #     logger.info(f"Collection 文檔數量: {count}")
+        # except Exception as e:
+        #     logger.info(f"⚠️  無法獲取 collection 狀態: {str(e)}")
+        
         result = rag_query_service.get_rag_context_with_file_content(
             collection_name=test_collection,
             question="what is NVM ExpressTM",
             k=3
         )
-
+        
         if result.get('error'):
-            print(f"❌ 查詢失敗: {result['error']}")
+            logger.info(f"❌ 查詢失敗: {result['error']}")
         else:
-            print(f"✅ 查詢成功")
-            print(f"   推薦文件: {result.get('filename', 'N/A')}")
-            print(f"   消息數量: {len(result.get('chat_messages', []))}")
-            # print(result)
-
+            logger.info(f"✅ 查詢成功")
+            logger.info(f"   推薦文件: {result.get('filename', 'N/A')}")
+            logger.info(f"   消息數量: {len(result.get('chat_messages', []))}")
+            # logger.info(result)
+        
         # 測試 generate_openai_payload 功能
-        print(f"\n=== 測試 OpenAI Payload 生成 ===")
+        logger.info(f"\n=== 測試 OpenAI Payload 生成 ===")
         try:
             openai_result = rag_query_service.generate_openai_payload(
                 collection_name=test_collection,
@@ -726,31 +634,31 @@ if __name__ == '__main__':
                 model="gpt-3.5-turbo",
                 params={"temperature": 0.7, "max_tokens": 1000}
             )
-
+            
             if openai_result['success']:
-                print(f"✅ OpenAI Payload 生成成功")
-                print(f"   消息: {openai_result['message']}")
-                print(f"   Payload 長度: {len(openai_result['payload_raw'])} 字符")
-
+                logger.info(f"✅ OpenAI Payload 生成成功")
+                logger.info(f"   消息: {openai_result['message']}")
+                logger.info(f"   Payload 長度: {len(openai_result['payload_raw'])} 字符")
+                
                 # 顯示 payload 內容（前 500 字符）
                 payload_preview = openai_result['payload_raw'][:500]
-                print(f"   Payload 預覽: {payload_preview}...")
-
+                logger.info(f"   Payload 預覽: {payload_preview}...")
+                
                 # 嘗試解析 JSON 來驗證格式
                 try:
                     import json
                     payload_obj = json.loads(openai_result['payload_raw'])
-                    print(f"   ✅ JSON 格式驗證通過")
-                    print(f"   模型: {payload_obj.get('model', 'N/A')}")
-                    print(f"   流式: {payload_obj.get('stream', 'N/A')}")
-                    print(f"   消息數量: {len(payload_obj.get('messages', []))}")
+                    logger.info(f"   ✅ JSON 格式驗證通過")
+                    logger.info(f"   模型: {payload_obj.get('model', 'N/A')}")
+                    logger.info(f"   流式: {payload_obj.get('stream', 'N/A')}")
+                    logger.info(f"   消息數量: {len(payload_obj.get('messages', []))}")
                 except json.JSONDecodeError as e:
-                    print(f"   ❌ JSON 格式錯誤: {str(e)}")
+                    logger.info(f"   ❌ JSON 格式錯誤: {str(e)}")
             else:
-                print(f"❌ OpenAI Payload 生成失敗: {openai_result['message']}")
-
+                logger.info(f"❌ OpenAI Payload 生成失敗: {openai_result['message']}")
+                
         except Exception as e:
-            print(f"❌ OpenAI Payload 測試失敗: {str(e)}")
+            logger.info(f"❌ OpenAI Payload 測試失敗: {str(e)}")
     else:
-        print("\n⚠️  沒有可用的 collections")
+        logger.info("\n⚠️  沒有可用的 collections")
 

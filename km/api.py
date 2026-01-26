@@ -3,8 +3,11 @@
 Simplified API - Document processing and KV Cache generation
 """
 import os
+import sys
 import uuid
 import threading
+import json
+import httpx
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -14,6 +17,20 @@ from config import settings
 from services.task_manager import TaskManagerService
 from services.rag_query_service import RAGQueryService
 from loguru import logger
+
+# Import embedding models
+try:
+    from langchain_openai import OpenAIEmbeddings
+    from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+    EMBEDDING_MODELS_AVAILABLE = True
+except ImportError:
+    EMBEDDING_MODELS_AVAILABLE = False
+    logger.warning("Embedding models not available. Install with: pip install langchain-openai langchain-community")
+
+
+# Logging configuration directory
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
 
 
 # Data models
@@ -105,6 +122,7 @@ class QueryOpenAIRequest(BaseModel):
     stream: bool = Field(default=True, description="Whether to stream response")
     model: str = Field(default="gpt-4", description="Model name")
     params: Optional[Dict[str, Any]] = Field(default=None, description="Additional parameters")
+    language: str = Field(default="zh-TW", description="Language")
 
 
 class QueryOpenAIResponse(BaseModel):
@@ -112,6 +130,29 @@ class QueryOpenAIResponse(BaseModel):
     success: bool
     payload_raw: str = ""
     message: str = ""
+    merged_file: Optional[str] = None
+    source_files: Optional[List[str]] = None
+    retrieved_chunks: Optional[List[str]] = None
+    merged_content: Optional[str] = None
+
+
+class QueryExecuteRequest(BaseModel):
+    """執行查詢並取得模型回應的 request"""
+    collection_name: str = Field(..., description="Collection name to query")
+    query: str = Field(..., description="User question")
+    k: int = Field(default=5, description="Number of top-k results to retrieve")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="Additional parameters")
+    language: str = Field(default="zh-TW", description="Language")
+    model_url: Optional[str] = Field(default=None, description="自訂模型 API URL（若未提供則使用環境變數）")
+    model_name: Optional[str] = Field(default=None, description="自訂模型名稱（若未提供則使用環境變數）")
+
+
+class QueryExecuteResponse(BaseModel):
+    """執行查詢並取得模型回應的 response"""
+    success: bool
+    model_response: str = ""
+    message: str = ""
+    merged_file: Optional[str] = None
 
 
 class CollectionsResponse(BaseModel):
@@ -144,7 +185,10 @@ app = FastAPI(
 
 # Initialize services (using configured base folder)
 task_manager = TaskManagerService(base_folder=settings.BASE_FOLDER)
-rag_query_service = RAGQueryService()
+
+# 全域變數：延遲初始化
+embedding_model = None
+rag_query_service = None
 
 # In-memory task store
 tasks: Dict[str, TaskStatus] = {}
@@ -162,7 +206,72 @@ _processing_lock = threading.Lock()
 @app.on_event("startup")
 async def startup():
     """Startup initialization"""
+    global embedding_model, rag_query_service
+    
+    # 配置 logger（只在 startup 時執行一次）
+    logger.remove()  # 移除所有預設 handler
+    
+    # 添加 console handler
+    logger.add(
+        sys.stdout,
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm} | {level:8} | {name}:{function}:{line} - {message}",
+        enqueue=True,
+        backtrace=True,
+        diagnose=True,
+    )
+    
+    # 添加 file handler（使用時間戳記）
+    logger.add(
+        os.path.join(LOG_DIR, "app_{time:YYYYMMDD_HHmmss}.log"),
+        rotation="10 MB",        # 檔案大小達 10MB 自動輪替
+        retention="10 days",     # 保留 10 天的 log
+        encoding="utf-8",
+        format="{time:YYYY-MM-DD HH:mm} | {level:8} | {name}:{function}:{line} - {message}",
+        enqueue=True,
+        backtrace=True,
+        diagnose=True,
+    )
+    
+    logger.info("=" * 80)
     logger.info("Document Processing & KV Cache API started")
+    logger.info("=" * 80)
+    
+    # 初始化 embedding_model
+    if EMBEDDING_MODELS_AVAILABLE and settings.EMBEDDING_API_IP and settings.EMBEDDING_API_PORT:
+        try:
+            embedding_url = settings.EMBEDDING_API_URL
+            
+            if settings.EMBEDDING_TYPE == "tei":
+                embedding_model = HuggingFaceInferenceAPIEmbeddings(
+                    api_url=embedding_url, 
+                    api_key="empty"
+                )
+                logger.info(f"✅ 使用 TEI 嵌入模型: {embedding_url}")
+            elif settings.EMBEDDING_TYPE in ["vllm", "openai", "llamacpp"]:
+                embedding_model = OpenAIEmbeddings(
+                    model=settings.EMBEDDING_MODEL_NAME,
+                    base_url=embedding_url,
+                    api_key="EMPTY",
+                    tiktoken_enabled=False,
+                    check_embedding_ctx_length=False,
+                    encoding_format="float"
+                )
+                logger.info(f"✅ 使用 OpenAI format 嵌入模型: {embedding_url}, model: {settings.EMBEDDING_MODEL_NAME}")
+            else:
+                logger.warning(f"不支援的 EMBEDDING_TYPE: {settings.EMBEDDING_TYPE}，將使用 BM25")
+        except Exception as e:
+            logger.warning(f"⚠️  無法創建 embedding_model: {e}，將使用 BM25")
+            embedding_model = None
+    else:
+        if not EMBEDDING_MODELS_AVAILABLE:
+            logger.warning("⚠️  Embedding 模組不可用，將使用 BM25")
+        elif not settings.EMBEDDING_API_IP or not settings.EMBEDDING_API_PORT:
+            logger.warning("⚠️  未設定 EMBEDDING_API_IP 或 EMBEDDING_API_PORT，將使用 BM25")
+    
+    # 初始化 RAG query service
+    rag_query_service = RAGQueryService(embedding_model=embedding_model)
+    logger.info("✅ RAG Query Service initialized")
 
 
 @app.on_event("shutdown")
@@ -709,12 +818,16 @@ async def query_collection(request: QueryRequest):
                 detail=f"Collection '{request.collection_name}' not found. Available collections: {available_collections}"
             )
         
+        # 獲取 collection
+        chroma = rag_query_service._get_collection(request.collection_name)
+        
         # 執行 RAG 查詢
         # result: {'filename': merge_file_name,
         #          'chat_messages': chat_messages,
         #          'merged_content': merged_content,
         #          'error': ''}
         result = rag_query_service.get_rag_context_with_file_content(
+            chroma=chroma,
             collection_name=request.collection_name,
             question=request.question,
             k=request.k
@@ -785,13 +898,13 @@ async def query_collection_openai_payload(request: QueryOpenAIRequest):
     
     try:
         # 驗證 collection 是否存在
-        available_collections = rag_query_service.get_available_collections()
-        if request.collection_name not in available_collections:
-            logger.warning(f"[/api/v1/query/openai] Collection not found: {request.collection_name}")
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Collection '{request.collection_name}' not found. Available collections: {available_collections}"
-            )
+        # available_collections = rag_query_service.get_available_collections()
+        # if request.collection_name not in available_collections:
+        #     logger.warning(f"[/api/v1/query/openai] Collection not found: {request.collection_name}")
+        #     raise HTTPException(
+        #         status_code=404, 
+        #         detail=f"Collection '{request.collection_name}' not found. Available collections: {available_collections}"
+        #     )
         
         # 生成 OpenAI payload
         result = rag_query_service.generate_openai_payload(
@@ -800,32 +913,162 @@ async def query_collection_openai_payload(request: QueryOpenAIRequest):
             k=request.k,
             stream=request.stream,
             model=request.model,
-            params=request.params
+            params=request.params,
+            language=request.language
         )
         
         if result['success']:
-            payload_raw = result['payload_raw']
-            messages = payload_raw['messages']
-
-
             logger.info(f"[/api/v1/query/openai] OpenAI payload generated successfully")
             return QueryOpenAIResponse(
                 success=True,
                 payload_raw=result['payload_raw'],
-                message=result['message']
+                message=result['message'],
+                merged_file=result.get('merged_file'),
+                source_files=result.get('source_files'),
+                retrieved_chunks=result.get('retrieved_chunks'),
+                merged_content=result.get('merged_content')
             )
         else:
             logger.error(f"[/api/v1/query/openai] Failed to generate OpenAI payload: {result['message']}")
             return QueryOpenAIResponse(
                 success=False,
                 payload_raw="",
-                message=result['message']
+                message=result['message'],
+                merged_file=None,
+                source_files=None,
+                retrieved_chunks=None,
+                merged_content=None
             )
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[/api/v1/query/openai] Internal error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@app.post("/api/v1/query/execute", response_model=QueryExecuteResponse)
+async def execute_query_with_model(request: QueryExecuteRequest):
+    """
+    執行 RAG 查詢並直接調用模型取得回應
+    
+    Args:
+        request: QueryExecuteRequest 包含查詢參數和 OpenAI 配置
+    
+    Returns:
+        QueryExecuteResponse: 包含模型的回應結果
+    """
+    logger.info(f"[/api/v1/query/execute] Received execute request - collection: {request.collection_name}, query: {request.query[:50]}...")
+    
+    try:
+        # 使用 prepare_rag_messages 準備 RAG messages（不需要序列化/反序列化）
+        rag_result = rag_query_service.prepare_rag_messages(
+            collection_name=request.collection_name,
+            query=request.query,
+            k=request.k,
+            language=request.language
+        )
+        
+        if not rag_result['success']:
+            logger.error(f"[/api/v1/query/execute] Failed to prepare RAG messages: {rag_result['message']}")
+            return QueryExecuteResponse(
+                success=False,
+                model_response="",
+                message=rag_result['message'],
+                merged_file=None,
+                retrieved_chunks=None
+            )
+        
+        # 調用 LLM API
+        try:
+            # 判斷使用自訂參數或環境變數（必須兩個都提供才使用自訂，否則都用預設）
+            if request.model_url and request.model_name:
+                use_model_url = request.model_url
+                use_model_name = request.model_name
+                logger.info(f"[/api/v1/query/execute] Using custom model settings")
+            else:
+                use_model_url = settings.LLM_API_URL
+                use_model_name = settings.LLM_MODEL_NAME
+                logger.info(f"[/api/v1/query/execute] Using default model settings from env")
+            
+            logger.info(f"[/api/v1/query/execute] Calling LLM API...")
+            logger.info(f"[/api/v1/query/execute] Model URL: {use_model_url}")
+            logger.info(f"[/api/v1/query/execute] Model Name: {use_model_name}")
+            
+            # 構建 LLM API payload（直接使用 messages，無需序列化/反序列化）
+            llm_payload = {
+                "model": use_model_name,
+                "messages": rag_result['messages'],
+                "max_tokens": request.params.get("max_tokens", 2048) if request.params else 2048,
+                "temperature": request.params.get("temperature", 0.7) if request.params else 0.7,
+                "top_p": request.params.get("top_p", 1.0) if request.params else 1.0,
+                "stream": False,
+            }
+            
+            # 調用 LLM API
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(
+                    use_model_url,
+                    json=llm_payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {settings.LLM_API_KEY}" if settings.LLM_API_KEY else ""
+                    }
+                )
+                
+                if response.status_code == 200:
+                    response_data = response.json()
+                    
+                    # 提取模型回應
+                    if 'choices' in response_data and len(response_data['choices']) > 0:
+                        model_response = response_data['choices'][0].get('message', {}).get('content', '')
+                        logger.info(f"[/api/v1/query/execute] Model response received successfully")
+                        
+                        return QueryExecuteResponse(
+                            success=True,
+                            model_response=model_response,
+                            message="Query executed successfully",
+                            merged_file=rag_result.get('merged_file')
+                        )
+                    else:
+                        model_response = json.dumps(response_data, ensure_ascii=False)
+                        logger.warning(f"[/api/v1/query/execute] Unexpected response format")
+                        
+                        return QueryExecuteResponse(
+                            success=False,
+                            model_response=model_response,
+                            message="Unexpected response format from LLM",
+                            merged_file=rag_result.get('merged_file'),
+                            retrieved_chunks=rag_result.get('retrieved_chunks')
+                        )
+                else:
+                    error_msg = f"LLM API error: {response.status_code} - {response.text}"
+                    logger.error(f"[/api/v1/query/execute] {error_msg}")
+                    
+                    return QueryExecuteResponse(
+                        success=False,
+                        model_response="",
+                        message=error_msg,
+                        merged_file=rag_result.get('merged_file'),
+                        retrieved_chunks=rag_result.get('retrieved_chunks')
+                    )
+                    
+        except Exception as e:
+            error_msg = f"Failed to call LLM API: {str(e)}"
+            logger.error(f"[/api/v1/query/execute] {error_msg}")
+            
+            return QueryExecuteResponse(
+                success=False,
+                model_response="",
+                message=error_msg,
+                merged_file=rag_result.get('merged_file'),
+                retrieved_chunks=rag_result.get('retrieved_chunks')
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[/api/v1/query/execute] Internal error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 

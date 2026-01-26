@@ -170,7 +170,7 @@ class TaskManagerService:
             # Process documents (this will generate merged files)
             # Use collection folder as file_content_folder
             task_id = f"{collection_name}_task"
-            self.document_processor.process_documents(documents, task_id, collection_name)
+            result, chunked_documents= self.document_processor.process_documents(documents, task_id, collection_name)
             
             # Get merged files
             merged_files = self.document_processor.list_merged_files()
@@ -198,8 +198,47 @@ class TaskManagerService:
                 language=language
             )
             
-            logger.info(f"KV cache generation completed, processed {processed_count} files successfully")
+            # logger.info(f"KV cache generation completed, processed {processed_count} files successfully")
             
+            # Step 4: Create and save BM25 index for this collection
+            # 注意：必須在 process_documents 完成後才創建 BM25 索引
+            # 因為需要從 ChromaDB 讀取已包含 group_id 的文檔
+            logger.info("Step 3: Creating BM25 index...")
+            try:
+                from services.bm25_index_manager import BM25IndexManager
+                bm25_manager = BM25IndexManager()
+                
+                # 檢查 BM25 是否可用
+                if not bm25_manager.is_available():
+                    logger.warning("BM25 dependencies not available. Skipping BM25 index creation.")
+                else:
+                    # 根據 language 參數決定使用的分詞器
+                    # 將 language 從 config 格式轉換為 BM25 格式
+                    bm25_language = 'zh-TW'  # 默認中文
+                    if language in ['en-US', 'english', 'en']:
+                        bm25_language = 'en-US'
+                    elif language in ['ja-JP', 'japanese', 'jp', 'ja']:
+                        bm25_language = 'ja-JP'
+                    
+                    # 從 ChromaDB 讀取文檔來建立 BM25 索引
+                    # 此時文檔已經包含 group_id（由 process_documents 中的 process_all_documents 添加）
+                    # 獲取 vectorstore（從 document_processor）
+                    vectorstore = self.document_processor.kv_cache_handler.chroma if self.document_processor.kv_cache_handler else None
+                    
+                    if vectorstore:
+                        if bm25_manager.create_index_from_chroma(vectorstore, collection_name, bm25_language):
+                            bm25_index_path = os.path.join(self.base_folder, collection_name, "BM25_indices")
+                            logger.info(f"BM25 index created and saved for collection {collection_name} at {bm25_index_path} (language: {bm25_language})")
+                        else:
+                            logger.warning(f"Failed to create BM25 index for collection {collection_name}")
+                    else:
+                        logger.warning("Vectorstore not available for BM25 index creation")
+            except Exception as e:
+                logger.error(f"Error creating BM25 index: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # 不影響整體流程，繼續執行
+                
             # Show results
             logger.info("Processing result:")
             logger.info(f"  - Collection: {collection_name}")

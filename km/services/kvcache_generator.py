@@ -125,7 +125,7 @@ class KVCacheGeneratorService:
 
             merged_content = document_data.page_content
 
-            user_prompt_template = get_user_prompt_template(language)
+            user_prompt_template = get_user_prompt_template(km_lang=language, include_query=False)
             user_content = user_prompt_template.format(chunk=merged_content)
 
             messages = []
@@ -136,21 +136,22 @@ class KVCacheGeneratorService:
                 })
 
             messages.append({
-                "role": "system",
+                "role": "user",
                 "content": user_content
             })
 
-            logger.info(f"{messages=}")
+            # logger.info(f"{messages=}")
 
             request_data = {
-                "model": settings.LLM_MODEL_NAME,
                 "messages": messages,
+                "model": settings.LLM_MODEL_NAME,
                 "max_tokens": 2,
                 "temperature": 0,
                 "stream": False,
                 "cache_prompt": True,
                 "offload_folder_name": self.collection_name
             }
+            logger.info(f"{request_data}")
 
             headers = {
                 "Content-Type": "application/json"

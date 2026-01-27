@@ -183,6 +183,7 @@ class ExternalParserService:
                 page_content=page_content,
                 metadata={
                     'source': filename,
+                    'source_file': filename,
                     'file_path': file_path,
                     'loader': 'ExternalParserService',
                     'api_url': self.api_url,
@@ -198,6 +199,7 @@ class ExternalParserService:
                     page_content="",
                     metadata={
                         'source': filename,
+                        'source_file': filename,
                         'file_path': file_path,
                         'parsed_by': 'external_api',
                         'api_url': self.api_url,
@@ -216,6 +218,7 @@ class ExternalParserService:
                 page_content="",
                 metadata={
                     'source': filename,
+                    'source_file': filename,
                     'file_path': file_path,
                     'loader': 'external_api',
                     'api_url': self.api_url,

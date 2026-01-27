@@ -17,10 +17,12 @@ Before starting Open-WebUI, make sure you have already started the LLM model and
    You can see the model information in the "models" endpoint, and provide the endpoint with version as the LLM URL.
    ![alt text](./images/image-8.png)
    ![alt text](./images/image-9.png)
-2. Setting the Embedding model endpoint:
+2. Setting the Embedding model endpoint for Knowledge Management:
    You can see the model information in the "models" endpoint, and provide the endpoint with version as the Embedding URL.
+   ![alt text](./images/image-1.png)
    ![alt text](./images/image-4.png)
-3. Setting Knowledge Management:
+3. Setting tokenizer model for Knowledge Management:
+   ![alt text](./images/image.png)
    ![alt text](./images/image-2.png)
 
 ### 🎯 Part 3: Getting Started

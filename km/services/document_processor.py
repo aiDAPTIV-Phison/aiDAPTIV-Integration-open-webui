@@ -23,6 +23,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 import sys
 import os
 from langchain_openai import OpenAIEmbeddings
+import re
 import requests
 # 確保父目錄在 sys.path 中
 parent_dir = os.path.dirname(os.path.dirname(__file__))
@@ -69,7 +70,8 @@ class ProcessingResult:
     created_at: datetime
 
 def count_tokens_embedding(text: str) -> int:
-    API_URL = f"http://{settings.EMBEDDING_API_IP}:{settings.EMBEDDING_API_PORT}/tokenize"
+    base_url = re.sub(r'/v\d+$', '', settings.EMBEDDING_URL)
+    API_URL = f"{base_url}/tokenize"
     MODEL = settings.EMBEDDING_MODEL_NAME
     CONTENT = text
     if settings.EMBEDDING_TYPE == "llamacpp":

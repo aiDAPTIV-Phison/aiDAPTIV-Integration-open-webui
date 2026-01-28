@@ -242,7 +242,7 @@ class RAGQueryService:
             
             # 添加 user 消息
             chat_messages.append({
-                "role": "user", 
+                "role": "system", 
                 "content": get_user_prompt_template(km_lang=language, include_query=True).format(chunk=merged_content, query=question)
             })
             
@@ -448,7 +448,7 @@ class RAGQueryService:
                 query=query
             )
             messages.append({
-                "role": "user",
+                "role": "system",
                 "content": user_content
             })
             

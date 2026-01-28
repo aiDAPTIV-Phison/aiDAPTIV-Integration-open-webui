@@ -136,7 +136,7 @@ class KVCacheGeneratorService:
                 })
 
             messages.append({
-                "role": "user",
+                "role": "system",
                 "content": user_content
             })
 

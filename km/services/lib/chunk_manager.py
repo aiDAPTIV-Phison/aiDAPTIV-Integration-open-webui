@@ -31,7 +31,7 @@ def count_tokens_embedding(text: str) -> int:
     Returns:
         token 數量
     """
-    API_URL = f"http://{settings.EMBEDDING_API_IP}:{settings.EMBEDDING_API_PORT}/tokenize"
+    API_URL = f"{settings.EMBEDDING_URL}/tokenize"
     MODEL = settings.EMBEDDING_MODEL_NAME
     CONTENT = text
     if settings.EMBEDDING_TYPE == "llamacpp":

@@ -238,7 +238,7 @@ async def startup():
     logger.info("=" * 80)
     
     # 初始化 embedding_model
-    if EMBEDDING_MODELS_AVAILABLE and settings.EMBEDDING_API_IP and settings.EMBEDDING_API_PORT:
+    if EMBEDDING_MODELS_AVAILABLE and settings.EMBEDDING_URL:
         try:
             embedding_url = settings.EMBEDDING_API_URL
             
@@ -266,8 +266,8 @@ async def startup():
     else:
         if not EMBEDDING_MODELS_AVAILABLE:
             logger.warning("⚠️  Embedding 模組不可用，將使用 BM25")
-        elif not settings.EMBEDDING_API_IP or not settings.EMBEDDING_API_PORT:
-            logger.warning("⚠️  未設定 EMBEDDING_API_IP 或 EMBEDDING_API_PORT，將使用 BM25")
+        elif not settings.EMBEDDING_URL:
+            logger.warning("⚠️  未設定 EMBEDDING_URL，將使用 BM25")
     
     # 初始化 RAG query service
     rag_query_service = RAGQueryService(embedding_model=embedding_model)

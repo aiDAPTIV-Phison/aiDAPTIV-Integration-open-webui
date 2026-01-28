@@ -4,7 +4,7 @@ ChromaDB 內容檢索與處理模組
 此模組提供 KVcacheContentHandler 類別，用於連接 ChromaDB 實例，
 檢索文件內容，並按來源文件進行組織和適當的頁面排序。
 """
-
+import re
 import json
 import os
 import sys
@@ -54,7 +54,8 @@ def count_tokens(text: str) -> int:
     返回:
         token 數量
     """
-    API_URL = f"http://{settings.LLM_API_IP}:{settings.LLM_API_PORT}/tokenize"
+    base_url = re.sub(r'/v\d+$', '', settings.LLM_URL)
+    API_URL = f"{base_url}/tokenize"
     MODEL = settings.LLM_MODEL_NAME
     CONTENT = text
     if settings.LLM_TYPE == "llamacpp":

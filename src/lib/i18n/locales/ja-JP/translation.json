@@ -1517,7 +1517,7 @@
 	"Yesterday": "昨日",
 	"You": "あなた",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "現在、試用ライセンスを使用しています。サポートにお問い合わせください。",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "一度に最大{{maxCount}}のファイルしかチャットできません。",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "一度に最大{{maxCount}}のファイルしかチャットできません。",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "メモリを追加することで、LLMとの対話をカスタマイズできます。",
 	"You cannot upload an empty file.": "空のファイルをアップロードできません。",
 	"You do not have permission to upload files.": "ファイルをアップロードする権限がありません。",

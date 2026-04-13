@@ -63,74 +63,39 @@ def call_km_rag_api(collection_name: str, question: str, k: int) -> Optional[dic
         dict: 轉換後的 query_result 格式，失敗時回傳 None
     """
     try:
-        # 準備 API 請求
-        api_url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/query"
+        # 使用 /api/v1/query/openai 端點（支援 language 參數，確保 KV cache 正確重用）
+        api_url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/query/openai"
         payload = {
             "collection_name": collection_name,
-            "question": question,
-            "k": k
+            "query": question,
+            "k": k,
+            "language": "en-US",
+            "stream": False,
+            "model": "default",
         }
 
         log.info(f"Calling KM RAG API: collection={collection_name}, question={question[:50]}...")
 
-        # 發送請求
         response = requests.post(
             api_url,
             json=payload,
-            timeout=30,  # 30秒超時
+            timeout=30,
             headers={"Content-Type": "application/json"}
         )
 
-        # 檢查 HTTP 狀態碼
         response.raise_for_status()
 
-        # 解析回應
         result = response.json()
         log.info(f"KM RAG API result: {result}")
 
         if result.get("success", False):
-            filename = result.get("filename", "KM RAG Result")
-
-            raw_path = result.get("file_path", "KM RAG Result").strip()  # 先去除前後空格
-
-            # 確保路徑是相對路徑，移除各種前導分隔符
-            # 處理 ./path, .\\path, \\path, /path, //path 等情況
-            # 使用 Path 來標準化路徑，確保跨平台兼容性
-            
-            # 統一將反斜線轉換為正斜線，避免跨平台問題
-            raw_path = raw_path.replace('\\', '/')
-            
-            # 移除前導分隔符
-            while raw_path.startswith(('./', '//', '/')):
-                if raw_path.startswith('./'):
-                    raw_path = raw_path[2:]
-                elif raw_path.startswith('//'):
-                    raw_path = raw_path[2:]
-                elif raw_path.startswith('/'):
-                    raw_path = raw_path[1:]
-            
-            # 使用 Path 標準化路徑（自動處理不同平台的分隔符）
-            actual_path = Path(raw_path)
-            
-            # 如果仍然是絕對路徑，轉換為相對路徑（移除根路徑）
-            if actual_path.is_absolute():
-                # 取得路徑的各部分，排除根部分
-                actual_path = Path(*actual_path.parts[1:]) if len(actual_path.parts) > 1 else actual_path
-            
-            file_path = Path(KM_RESULT_DIR) / actual_path
-            try:
-                # 讀取file_path指向的txt檔內容
-                with open(file_path, "r", encoding="utf-8") as f:
-                    merged_content = f.read()
-            except Exception as e:
-                log.warning(f"Failed to read file content from {file_path}: {str(e)}")
-                merged_content = ""
+            merged_content = result.get("merged_content", "")
+            filename = result.get("merged_file", "KM RAG Result")
 
             log.info(f"KM RAG API success: content_length={len(merged_content)}")
 
-            # 轉換為 query_result 格式
             return {
-                "documents": [[merged_content]],  # 雙層列表
+                "documents": [[merged_content]],
                 "metadatas": [[{
                     "source": filename,
                     "name": filename,
@@ -138,7 +103,7 @@ def call_km_rag_api(collection_name: str, question: str, k: int) -> Optional[dic
                 }]]
             }
         else:
-            error_msg = result.get("error", "Unknown error")
+            error_msg = result.get("message", "Unknown error")
             log.warning(f"KM RAG API returned error: {error_msg}")
             return None
 

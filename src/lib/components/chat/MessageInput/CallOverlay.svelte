@@ -174,7 +174,8 @@
 
 	const stopRecordingCallback = async (_continue = true) => {
 		if ($showCallOverlay) {
-			console.log('%c%s', 'color: red; font-size: 20px;', '🚨 stopRecordingCallback 🚨');
+			// console.log('%c%s', 'color: red; font-size: 20px;', '🚨 stopRecordingCallback 🚨');
+			console.log('%c%s', 'color: red; font-size: 20px;', 'stopRecordingCallback');
 
 			// deep copy the audioChunks array
 			const _audioChunks = audioChunks.slice(0);

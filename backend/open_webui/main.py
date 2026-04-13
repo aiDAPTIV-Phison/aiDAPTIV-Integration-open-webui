@@ -1165,6 +1165,17 @@ async def check_url(request: Request, call_next):
     response = await call_next(request)
     process_time = int(time.time()) - start_time
     response.headers["X-Process-Time"] = str(process_time)
+
+    # BaseHTTPMiddleware re-wraps the response body through an intermediate
+    # stream.  When multiple middleware layers do this, the Content-Length
+    # header set by the inner handler may no longer match the bytes that
+    # uvicorn actually sends, causing:
+    #   RuntimeError: Response content longer than Content-Length
+    # Removing it lets uvicorn fall back to chunked transfer-encoding,
+    # which always matches the real payload size.
+    if "content-length" in response.headers:
+        del response.headers["content-length"]
+
     return response
 
 

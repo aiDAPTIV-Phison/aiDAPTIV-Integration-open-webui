@@ -1517,7 +1517,7 @@
 	"Yesterday": "Wczoraj",
 	"You": "Ty",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Obecnie używasz licencji trial. Skontaktuj się z supportem, aby zupgradować Twoją licencję.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Możesz rozmawiać jednocześnie maksymalnie z {{maxCount}} plikiem(i).",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Możesz rozmawiać jednocześnie maksymalnie z {{maxCount}} plikiem(i).",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Możesz spersonalizować swoje interakcje z LLM, dodając wspomnienia za pomocą przycisku 'Zarządzaj' poniżej, dzięki czemu będą one bardziej pomocne i dostosowane do Ciebie.",
 	"You cannot upload an empty file.": "Nie możesz przesłać pustego pliku.",
 	"You do not have permission to upload files.": "Nie masz uprawnień do przesyłania plików.",

@@ -1517,7 +1517,7 @@
 	"Yesterday": "昨天",
 	"You": "你",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "当前为试用许可证，请联系支持人员升级许可证。",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "每次对话最多仅能附上 {{maxCount}} 个文件。",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "每次对话最多仅能附上 {{maxCount}} 个文件。",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "通过点击下方的 “管理” 按钮，你可以添加记忆，以个性化大语言模型的互动，使其更有用，更符合你的需求。",
 	"You cannot upload an empty file.": "请勿上传空文件",
 	"You do not have permission to upload files.": "您没有上传文件的权限",

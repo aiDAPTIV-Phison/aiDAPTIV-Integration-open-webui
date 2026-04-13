@@ -1530,10 +1530,11 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
 
         url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/process"
 
-        # max_wait_time = 3000  # 10 分鐘
+        # max_wait_time = 3000  # 10 minutes
         with httpx.Client(timeout=None) as client:
-            # 1. 發送處理請求
-            log.info(f"發送 KM_SELF_RAG 處理請求到: {url}")
+            # 1. Send processing request
+            # log.info(f"發送 KM_SELF_RAG 處理請求到: {url}")
+            log.info(f"Sending KM_SELF_RAG processing request to: {url}")
             try:
                 r = client.post(url, json=payload, headers={"Content-Type": "application/json"})
                 r.raise_for_status()
@@ -1541,23 +1542,26 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
                 task_id = result.get("task_id")
 
                 if not task_id:
-                    log.error(f"API回應缺少 'task_id': {result}")
+                    # log.error(f"API回應缺少 'task_id': {result}")
+                    log.error(f"API response missing 'task_id': {result}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"API回應缺少 'task_id': {result}",
+                        detail=f"API response missing 'task_id': {result}",
                     )
 
-                log.info(f"KM_SELF_RAG 任務已建立，task_id: {task_id}")
+                # log.info(f"KM_SELF_RAG 任務已建立，task_id: {task_id}")
+                log.info(f"KM_SELF_RAG task created, task_id: {task_id}")
             except Exception as e:
-                log.error(f"發送處理請求給KM失敗: {e}")
+                # log.error(f"發送處理請求給KM失敗: {e}")
+                log.error(f"Failed to send processing request to KM: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"發送處理請求給KM失敗: {e}",
+                    detail=f"Failed to send processing request to KM: {e}",
                 )
 
-            # 2. 輪詢狀態
+            # 2. Poll status
             status_url = f"{KM_SELF_RAG_API_BASE_URL}/api/v1/status/{task_id}"
-            poll_interval = 10    # 每 10 秒檢查一次
+            poll_interval = 10    # Check every 10 seconds
             elapsed_time = 0
 
             while True:
@@ -1570,26 +1574,31 @@ def trigger_km_self_rag_processing(request: Request, docs: list, collection_name
                     message = status_data.get("message", "")
 
                     if current_status == "completed":
-                        log.info(f"KM_SELF_RAG 處理完成！task_id: {task_id}, 總耗時: {elapsed_time}秒")
+                        # log.info(f"KM_SELF_RAG 處理完成！task_id: {task_id}, 總耗時: {elapsed_time}秒")
+                        log.info(f"KM_SELF_RAG processing completed, task_id: {task_id}, total_elapsed: {elapsed_time}s")
                         break
                     elif current_status == "failed":
-                        log.error(f"KM_SELF_RAG 處理失敗！task_id: {task_id}, 錯誤: {message}")
+                        # log.error(f"KM_SELF_RAG 處理失敗！task_id: {task_id}, 錯誤: {message}")
+                        log.error(f"KM_SELF_RAG processing failed, task_id: {task_id}, error: {message}")
                         break
 
-                    # 等待並記錄
-                    log.info(f"等待 KM_SELF_RAG 處理中... 狀態: {current_status}, 已等待: {elapsed_time}秒, 訊息: {message}")
+                    # Wait and log status
+                    # log.info(f"等待 KM_SELF_RAG 處理中... 狀態: {current_status}, 已等待: {elapsed_time}秒, 訊息: {message}")
+                    log.info(f"Waiting for KM_SELF_RAG processing... status: {current_status}, elapsed: {elapsed_time}s, message: {message}")
                     time.sleep(poll_interval)
                     elapsed_time += poll_interval
                 except httpx.RequestError as e:
-                    log.error(f"輪詢狀態時發生請求錯誤: {e}, 將重試")
+                    # log.error(f"輪詢狀態時發生請求錯誤: {e}, 將重試")
+                    log.error(f"Request error while polling status: {e}, will retry")
                     time.sleep(poll_interval)
                     elapsed_time += poll_interval                    
                 except Exception as poll_error:
-                    log.error(f"輪詢狀態時發生錯誤: {poll_error}")
+                    # log.error(f"輪詢狀態時發生錯誤: {poll_error}")
+                    log.error(f"Error while polling status: {poll_error}")
                     break
 
             # if elapsed_time >= max_wait_time:
-            #     log.warning(f"KM_SELF_RAG 處理超時！task_id: {task_id}, 最大等待時間: {max_wait_time}秒")
+            #     log.warning(f"KM_SELF_RAG processing timed out, task_id: {task_id}, max_wait_time: {max_wait_time}s")
 
     except Exception as e:
         log.error(f"KM_SELF_RAG processing failed for collection {collection_name}: {e}")

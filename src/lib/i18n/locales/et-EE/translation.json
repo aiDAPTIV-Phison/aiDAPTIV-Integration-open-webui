@@ -1517,7 +1517,7 @@
 	"Yesterday": "Eile",
 	"You": "Sina",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Kasutate praegu proovilitsentsi. Palun võtke ühendust toega, et oma litsentsi uuendada.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Saate korraga vestelda maksimaalselt {{maxCount}} faili(ga).",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Saate korraga vestelda maksimaalselt {{maxCount}} faili(ga).",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Saate isikupärastada oma suhtlust LLM-idega, lisades mälestusi alumise 'Halda' nupu kaudu, muutes need kasulikumaks ja teile kohandatumaks.",
 	"You cannot upload an empty file.": "Te ei saa üles laadida tühja faili.",
 	"You do not have permission to upload files.": "Teil pole õigust faile üles laadida.",

@@ -9,3 +9,4 @@ tmp/*
 venv/*
 test/data/*.pdf
 test/data/*.json
+flowchart/*

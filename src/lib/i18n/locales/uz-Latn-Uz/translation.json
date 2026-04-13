@@ -1517,7 +1517,7 @@
 	"Yesterday": "Kecha",
 	"You": "Siz",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Siz hozirda sinov litsenziyasidan foydalanmoqdasiz. Litsenziyangizni yangilash uchun qoʻllab-quvvatlash xizmatiga murojaat qiling.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Siz bir vaqtning o'zida ko'pi bilan {{maxCount}} ta fayl(lar) bilan suhbatlashishingiz mumkin.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Siz bir vaqtning o'zida ko'pi bilan {{maxCount}} ta fayl(lar) bilan suhbatlashishingiz mumkin.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Quyidagi “Boshqarish” tugmasi orqali xotiralar qo‘shish orqali LLMlar bilan o‘zaro aloqalaringizni shaxsiylashtirishingiz mumkin, bu ularni yanada foydaliroq va sizga moslashtiradi.",
 	"You cannot upload an empty file.": "Siz bo'sh faylni yuklay olmaysiz.",
 	"You do not have permission to upload files.": "Sizda fayllarni yuklash uchun ruxsat yo'q.",

@@ -31,7 +31,7 @@ def count_tokens_embedding(text: str) -> int:
     Returns:
         token 數量
     """
-    API_URL = f"{settings.EMBEDDING_URL}/tokenize"
+    API_URL = f"http://{settings.EMBEDDING_API_IP}:{settings.EMBEDDING_API_PORT}/tokenize"
     MODEL = settings.EMBEDDING_MODEL_NAME
     CONTENT = text
     if settings.EMBEDDING_TYPE == "llamacpp":
@@ -72,7 +72,7 @@ class ChunkManager:
         self.chunk_overlap = chunk_overlap
         self.max_tokens_per_group = max_tokens_per_group or settings.MAX_TOKENS_PER_GROUP
         
-        logger.info(f"ChunkManager 初始化完成")
+        logger.info(f"ChunkManager initialization completed")
         logger.info(f"chunk_size: {self.chunk_size}, chunk_overlap: {self.chunk_overlap}")
         logger.info(f"max_tokens_per_group: {self.max_tokens_per_group}")
     
@@ -121,7 +121,7 @@ class ChunkManager:
                 - small_files: 未超過 max_tokens_per_group 的檔案列表
                 - file_token_counts: 檔名 -> token 數的對應字典
         """
-        logger.info(f"開始分類檔案，共 {len(documents)} 個檔案")
+        logger.info(f"Starting file classification, {len(documents)} files")
         logger.info(f"max_tokens_per_group: {self.max_tokens_per_group}")
         
         large_files = []
@@ -136,23 +136,23 @@ class ChunkManager:
                 total_tokens = count_tokens_embedding(doc.page_content)
                 file_token_counts[filename] = total_tokens
                 
-                logger.info(f"檔案 {filename}: {total_tokens} tokens")
+                logger.info(f"File {filename}: {total_tokens} tokens")
                 
                 # 判斷是否超過 max_tokens_per_group
                 if total_tokens > self.max_tokens_per_group:
                     large_files.append(doc)
-                    logger.info(f"檔案 {filename} 分類為大檔案（{total_tokens} > {self.max_tokens_per_group}）")
+                    logger.info(f"File {filename} classified as large file ({total_tokens} > {self.max_tokens_per_group})")
                 else:
                     small_files.append(doc)
-                    logger.info(f"檔案 {filename} 分類為小檔案（{total_tokens} <= {self.max_tokens_per_group}）")
+                    logger.info(f"File {filename} classified as small file ({total_tokens} <= {self.max_tokens_per_group})")
                     
             except Exception as e:
-                logger.error(f"計算檔案 {filename} 的 token 數失敗: {str(e)}")
+                logger.error(f"Failed to calculate token count for file {filename}: {str(e)}")
                 # 發生錯誤時，預設歸類為小檔案（較安全）
                 small_files.append(doc)
                 file_token_counts[filename] = 0
         
-        logger.info(f"檔案分類完成: 大檔案 {len(large_files)} 個，小檔案 {len(small_files)} 個")
+        logger.info(f"File classification completed: {len(large_files)} large files, {len(small_files)} small files")
         
         return large_files, small_files, file_token_counts
     
@@ -178,7 +178,7 @@ class ChunkManager:
         chunk_size = chunk_size or self.chunk_size
         chunk_overlap = chunk_overlap or self.chunk_overlap
         
-        logger.info(f"開始對 {len(documents)} 個文檔進行分塊")
+        logger.info(f"Starting to chunk {len(documents)} documents")
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -242,7 +242,7 @@ class ChunkManager:
                 })
                 chunked_documents.append(chunk)
 
-        logger.info(f"分塊完成: {len(documents)} 個文檔 -> {len(chunked_documents)} 個分塊")
+        logger.info(f"Chunking completed: {len(documents)} documents -> {len(chunked_documents)} chunks")
         
         return chunked_documents
     
@@ -266,7 +266,7 @@ class ChunkManager:
         max_tokens_per_group = max_tokens_per_group or self.max_tokens_per_group
         
         filename = doc.metadata.get('source', 'unknown')
-        logger.info(f"開始切分大檔案 {filename}，總 token 數: {total_tokens}")
+        logger.info(f"Starting to split large file {filename}, total tokens: {total_tokens}")
         
         # 處理檔名（將最後一個點替換為底線）
         safe_filename = filename
@@ -305,7 +305,7 @@ class ChunkManager:
         
         # 切分為 group files
         group_file_chunks = group_file_splitter.split_documents([doc])
-        logger.info(f"大檔案 {filename} 切分為 {len(group_file_chunks)} 個 group files")
+        logger.info(f"Large file {filename} split into {len(group_file_chunks)} group files")
         
         # 為每個 group file 建立 Document 並添加 metadata
         group_file_documents = []
@@ -328,7 +328,7 @@ class ChunkManager:
             })
             
             group_file_documents.append(group_file_doc)
-            logger.info(f"建立 group file: {group_file_id}, token 數: {count_tokens_embedding(group_chunk.page_content)}")
+            logger.info(f"Created group file: {group_file_id}, token count: {count_tokens_embedding(group_chunk.page_content)}")
         
         return group_file_documents
 

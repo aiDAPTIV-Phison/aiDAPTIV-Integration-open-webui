@@ -1517,7 +1517,7 @@
 	"Yesterday": "ཁ་ས།",
 	"You": "ཁྱེད།",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "ཁྱེད་ཀྱིས་ད་ལྟ་ཚོད་ལྟའི་ཆོག་མཆན་ཞིག་བེད་སྤྱོད་གཏོང་བཞིན་འདུག ཁྱེད་ཀྱི་ཆོག་མཆན་རིམ་སྤོར་བྱེད་པར་རོགས་སྐྱོར་དང་འབྲེལ་གཏུག་བྱེད་རོགས།",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "ཁྱེད་ཀྱིས་ཐེངས་གཅིག་ལ་ཡིག་ཆ་ {{maxCount}} ལས་མང་བ་དང་ཁ་བརྡ་བྱེད་མི་ཐུབ།",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "ཁྱེད་ཀྱིས་ཐེངས་གཅིག་ལ་ཡིག་ཆ་ {{maxCount}} ལས་མང་བ་དང་ཁ་བརྡ་བྱེད་མི་ཐུབ།",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "ཁྱེད་ཀྱིས་གཤམ་གྱི་ 'དོ་དམ་' མཐེབ་གནོན་བརྒྱུད་དྲན་ཤེས་སྣོན་ནས་ LLMs དང་མཉམ་དུ་འབྲེལ་འདྲིས་བྱེད་པ་སྒེར་སྤྱོད་ཅན་བཟོ་ཐུབ། དེ་དག་ཁྱེད་ལ་སྔར་ལས་ཕན་ཐོགས་པ་དང་འཚམ་པོ་བཟོ་ཐུབ།",
 	"You cannot upload an empty file.": "ཁྱེད་ཀྱིས་ཡིག་ཆ་སྟོང་པ་སྤར་མི་ཐུབ།",
 	"You do not have permission to upload files.": "ཁྱེད་ལ་ཡིག་ཆ་སྤར་བའི་དབང་ཚད་མེད།",

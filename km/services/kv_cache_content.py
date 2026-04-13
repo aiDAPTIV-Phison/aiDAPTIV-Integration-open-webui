@@ -4,7 +4,7 @@ ChromaDB 內容檢索與處理模組
 此模組提供 KVcacheContentHandler 類別，用於連接 ChromaDB 實例，
 檢索文件內容，並按來源文件進行組織和適當的頁面排序。
 """
-import re
+
 import json
 import os
 import sys
@@ -54,8 +54,7 @@ def count_tokens(text: str) -> int:
     返回:
         token 數量
     """
-    base_url = re.sub(r'/v\d+$', '', settings.LLM_URL)
-    API_URL = f"{base_url}/tokenize"
+    API_URL = f"http://{settings.LLM_API_IP}:{settings.LLM_API_PORT}/tokenize"
     MODEL = settings.LLM_MODEL_NAME
     CONTENT = text
     if settings.LLM_TYPE == "llamacpp":
@@ -110,7 +109,7 @@ class KVcacheContentHandler:
             os.makedirs(directory_path, exist_ok=True, mode=0o777)
             os.chmod(directory_path, 0o777)
         except OSError as e:
-            logger.error(f"設置目錄權限失敗: {directory_path}, 錯誤: {e}")
+            logger.error(f"Failed to set directory permissions: {directory_path}, error: {e}")
     
     def _ensure_file_permissions(self, file_path: str) -> None:
         """
@@ -123,7 +122,7 @@ class KVcacheContentHandler:
             if os.path.exists(file_path):
                 os.chmod(file_path, 0o777)
         except OSError as e:
-            logger.error(f"設置文件權限失敗: {file_path}, 錯誤: {e}")
+            logger.error(f"Failed to set file permissions: {file_path}, error: {e}")
     
     def _extract_chunk_ids(self, chunks: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
         """
@@ -260,13 +259,13 @@ class KVcacheContentHandler:
         # 原始的累積 token 數（未移除重疊）
         file_total_token_raw = sum(item.get('token_count', 0) or 0 for item in content_list)
         
-        logger.info(f'檔案: {source_file}')
-        logger.info(f'  - 原始累積 token: {file_total_token_raw}')
-        logger.info(f'  - 移除重疊後 token: {file_total_token_accurate} (精確值)')
+        logger.info(f'File: {source_file}')
+        logger.info(f'  - Raw accumulated tokens: {file_total_token_raw}')
+        logger.info(f'  - Tokens after overlap removal: {file_total_token_accurate} (exact)')
         logger.info(f'  - Max token per group: {max_token_per_group}')
         
         is_large_file = file_total_token_accurate >= max_token_per_group
-        logger.info(f'  - 判斷為: {"大檔案" if is_large_file else "小檔案"}')
+        logger.info(f'  - Classified as: {"large file" if is_large_file else "small file"}')
         
         return is_large_file, file_total_token_accurate
     
@@ -403,7 +402,7 @@ class KVcacheContentHandler:
                 chunk['new_segment_without_overlap'] = chunk_content  # 第一個 chunk 的完整內容
                 total_token_without_overlap += token_count
                 last_chunk_content = chunk_content
-                logger.info(f'預處理 chunk {idx}: 第一個 chunk，token 數 = {token_count}')
+                logger.info(f'Preprocessing chunk {idx}: first chunk, token count = {token_count}')
             else:
                 # 第二個以後的 chunk，檢查重疊
                 new_segment, overlap_len = self._extract_chunk_without_overlap(last_chunk_content, chunk_content)
@@ -418,17 +417,17 @@ class KVcacheContentHandler:
                     total_token_without_overlap += incremental_token_count
                     
                     if overlap_len > 0:
-                        logger.info(f'預處理 chunk {idx}: 發現重疊 {overlap_len} 字元，移除後 token 數 = {incremental_token_count} (原始: {chunk.get("token_count", 0)})')
+                        logger.info(f'Preprocessing chunk {idx}: found overlap {overlap_len} chars, token count after removal = {incremental_token_count} (original: {chunk.get("token_count", 0)})')
                     else:
-                        logger.info(f'預處理 chunk {idx}: 無重疊，token 數 = {incremental_token_count}')
+                        logger.info(f'Preprocessing chunk {idx}: no overlap, token count = {incremental_token_count}')
                 else:
                     # 完全重疊
                     chunk['token_count_without_overlap'] = 0
-                    logger.info(f'預處理 chunk {idx}: 完全重疊，token 數 = 0 (原始: {chunk.get("token_count", 0)})')
+                    logger.info(f'Preprocessing chunk {idx}: fully overlapped, token count = 0 (original: {chunk.get("token_count", 0)})')
                 
                 last_chunk_content = chunk_content
         
-        logger.info(f'預處理完成: 原始累積 token = {sum(c.get("token_count", 0) or 0 for c in content_list)}, 移除重疊後 token = {total_token_without_overlap}')
+        logger.info(f'Preprocessing completed: raw accumulated tokens = {sum(c.get("token_count", 0) or 0 for c in content_list)}, tokens after overlap removal = {total_token_without_overlap}')
         return content_list, total_token_without_overlap
     
     def _get_chunk_incremental_info(
@@ -520,7 +519,7 @@ class KVcacheContentHandler:
             if not new_segment or incremental_token_count == 0:
                 last_chunk_content = new_segment
                 current_chunks.append(chunk)
-                logger.info('chunk 無新增內容或完全重疊，略過累加')
+                logger.info('Chunk has no new content or fully overlapped, skipping accumulation')
                 continue
 
             # 如果目前沒有累積的 chunks，視為新部分開頭
@@ -530,7 +529,7 @@ class KVcacheContentHandler:
                 merged_content = chunk_content
                 current_token_count = chunk_token_count
                 current_chunks.append(chunk)
-                logger.info(f'開始新部分，第一個 chunk token 數: {current_token_count}')
+                logger.info(f'Starting new part, first chunk token count: {current_token_count}')
                 continue
 
             # 計算添加這個 chunk 後的總 token 數
@@ -539,12 +538,12 @@ class KVcacheContentHandler:
             # 檢查是否會超過限制
             if predicted_token_count > token_per_group:
                 # 會超過限制，不添加當前 chunk，先保存目前累積的部分
-                logger.info(f'預測添加 chunk 後會超過限制 ({predicted_token_count} > {token_per_group})，不添加此 chunk')
-                logger.info(f'保存部分: 包含 {len(current_chunks)} 個 chunks，原始累積 token (估算): {sum(c.get("token_count", 0) or 0 for c in current_chunks)}，實際 token (移除重疊後): {current_token_count}')
+                logger.info(f'Predicted token count after adding chunk exceeds limit ({predicted_token_count} > {token_per_group}), not adding this chunk')
+                logger.info(f'Saving part: contains {len(current_chunks)} chunks, raw accumulated tokens (estimated): {sum(c.get("token_count", 0) or 0 for c in current_chunks)}, actual tokens (after overlap removal): {current_token_count}')
                 
                 # 安全檢查：確保當前部分不超過限制
                 if current_token_count > token_per_group:
-                    logger.warning(f'警告：當前部分 token 數 ({current_token_count}) 超過限制 ({token_per_group})！')
+                    logger.warning(f'Warning: current part token count ({current_token_count}) exceeds limit ({token_per_group})!')
                 
                 # Generate file_key when saving the part
                 file_key = f"{normalized_filename}_merged_part{part_counter}"
@@ -569,19 +568,19 @@ class KVcacheContentHandler:
                 current_token_count = chunk_token_count
                 last_chunk_content = chunk_content
                 current_chunks = [chunk]
-                logger.info(f'已保存部分 {part_counter-1}，開始新部分 {part_counter}，第一個 chunk token 數: {current_token_count}')
+                logger.info(f'Saved part {part_counter-1}, starting new part {part_counter}, first chunk token count: {current_token_count}')
             else:
                 # 不超過限制，使用增量累加
                 merged_content = f"{merged_content}{new_segment}"
                 current_token_count = predicted_token_count
                 last_chunk_content = new_segment
                 current_chunks.append(chunk)
-                logger.info(f'累加 chunk，增量 token: {incremental_token_count}，當前總 token: {current_token_count}')
+                logger.info(f'Accumulating chunk, incremental tokens: {incremental_token_count}, current total tokens: {current_token_count}')
 
         # 處理最後一個部分（循環結束後剩餘的內容）
         if current_chunks:
             last_part_token = current_token_count
-            logger.info(f'處理最後一個部分，當前 token 數: {last_part_token} / {max_token_per_group} ({last_part_token/max_token_per_group*100:.1f}%)')
+            logger.info(f'Processing last part, current token count: {last_part_token} / {max_token_per_group} ({last_part_token/max_token_per_group*100:.1f}%)')
             
             # 嘗試平衡最後一部分的 token 數
             current_chunks, merged_content, last_part_token = self._try_balance_last_part(
@@ -597,9 +596,9 @@ class KVcacheContentHandler:
             
             # 最終安全檢查
             if last_part_token > max_token_per_group:
-                logger.warning(f'警告：最後一部分 token 數 ({last_part_token}) 超過限制 ({max_token_per_group})！')
+                logger.warning(f'Warning: last part token count ({last_part_token}) exceeds limit ({max_token_per_group})!')
             
-            logger.info(f'保存最後一部分 {part_counter}，包含 {len(current_chunks)} 個 chunks，token 數: {last_part_token}')
+            logger.info(f'Saving last part {part_counter}, contains {len(current_chunks)} chunks, token count: {last_part_token}')
             
             # 保存最後一部分
             chroma_ids, chunk_ids = self._extract_chunk_ids(current_chunks)
@@ -613,13 +612,13 @@ class KVcacheContentHandler:
             }
 
         # 輸出最終統計資訊
-        logger.info(f'===== 檔案切分完成 =====')
-        logger.info(f'檔案: {source_file} (標準化為: {normalized_filename})')
-        logger.info(f'總共切分為 {len(merged_parts)} 個部分')
+        logger.info(f'===== File splitting completed =====')
+        logger.info(f'File: {source_file} (normalized to: {normalized_filename})')
+        logger.info(f'Total split into {len(merged_parts)} parts')
         for part_key, part_info in merged_parts.items():
             token_count = part_info['total_token_count']
             utilization = token_count / max_token_per_group * 100
-            logger.info(f'  - {part_key}: {token_count} tokens ({utilization:.1f}% 利用率)')
+            logger.info(f'  - {part_key}: {token_count} tokens ({utilization:.1f}% utilization)')
         logger.info(f'=======================')
 
         return merged_parts
@@ -703,7 +702,7 @@ class KVcacheContentHandler:
         if not (last_part_token < max_token_per_group and saved_parts):
             return current_chunks, merged_content, last_part_token
         
-        logger.info(f'最後一部分 token 數較少，嘗試從前一部分由後往前補充 chunks')
+        logger.info(f'Last part has fewer tokens, trying to borrow chunks from previous part in reverse order')
         
         last_saved_part = saved_parts[-1]
         last_saved_chunks = last_saved_part['chunks']
@@ -719,27 +718,27 @@ class KVcacheContentHandler:
                 _, incremental_token_count = self._get_chunk_incremental_info(None, chunk)
             
             predicted_token_count = last_part_token + (incremental_token_count or 0)
-            logger.info(f'測試從前一部分借用第 {i} 個 chunk，預測 token 數: {predicted_token_count}')
+            logger.info(f'Testing borrowing chunk {i} from previous part, predicted token count: {predicted_token_count}')
             
             if predicted_token_count <= max_token_per_group:
                 # 直接把 chunk 前置到 current_chunks，並重新合併計算
                 current_chunks.insert(0, chunk)
                 merged_content = f"{new_segment}{merged_content}"
                 last_part_token = predicted_token_count
-                logger.info(f'借用此 chunk 後，預估 token: {last_part_token}')
+                logger.info(f'After borrowing this chunk, estimated tokens: {last_part_token}')
             else:
-                logger.info(f'借用此 chunk 會超過限制 ({predicted_token_count} > {max_token_per_group})，停止借用')
+                logger.info(f'Borrowing this chunk would exceed limit ({predicted_token_count} > {max_token_per_group}), stopping')
                 break
         
         borrowed_count = len(current_chunks) - original_chunk_len
         if borrowed_count > 0:
             if last_part_token > max_token_per_group:
-                logger.error(f'錯誤：最後一部分補充後超過限制！token 數: {last_part_token} > {max_token_per_group}')
+                logger.error(f'Error: last part exceeds limit after supplementing! Token count: {last_part_token} > {max_token_per_group}')
             else:
-                logger.info(f'✓ 最後一部分從前一部分借用 {borrowed_count} 個 chunks')
-                logger.info(f'✓ 更新後：最後一部分 token 數 = {last_part_token} / {max_token_per_group} ({last_part_token/max_token_per_group*100:.1f}%)')
+                logger.info(f'Last part borrowed {borrowed_count} chunks from previous part')
+                logger.info(f'After update: last part token count = {last_part_token} / {max_token_per_group} ({last_part_token/max_token_per_group*100:.1f}%)')
         else:
-            logger.info(f'無法從前一部分借用任何 chunks（會導致超過限制）')
+            logger.info(f'Cannot borrow any chunks from previous part (would exceed limit)')
         
         return current_chunks, merged_content, last_part_token
     
@@ -756,7 +755,7 @@ class KVcacheContentHandler:
             current_data = self.chroma.get(ids=chroma_ids)
 
             if not current_data.get("metadatas"):
-                logger.warning(f"未找到 ID 的 metadata: {chroma_ids}")
+                logger.warning(f"No metadata found for IDs: {chroma_ids}")
                 return
 
             doc_contents = current_data.get("documents", [])
@@ -807,10 +806,10 @@ class KVcacheContentHandler:
                 documents=updated_documents
             )
 
-            logger.info(f"已更新 {len(chroma_ids)} 個文件的 group_id: {group_id}")
+            logger.info(f"Updated group_id for {len(chroma_ids)} documents: {group_id}")
 
         except Exception as e:
-            logger.error(f"更新 ChromaDB 中的 group_id 時發生錯誤: {e}")
+            logger.error(f"Error updating group_id in ChromaDB: {e}")
             import traceback
             traceback.print_exc()
     
@@ -831,7 +830,7 @@ class KVcacheContentHandler:
 
         # 如果提供了保存路徑，保存處理結果
         if save_folder_path is not None:
-            logger.info(f"保存處理結果到: {save_folder_path}")
+            logger.info(f"Saving processing results to: {save_folder_path}")
             self._save_expanded_result(file_whole_content, save_folder_path)
         
         return file_whole_content
@@ -869,10 +868,10 @@ class KVcacheContentHandler:
                     with open(merged_filepath, 'w', encoding='utf-8') as f:
                         f.write(file_data["content"])
                     self._ensure_file_permissions(merged_filepath)
-                    logger.info(f"已保存合併文件: {merged_filepath}")
+                    logger.info(f"Saved merged file: {merged_filepath}")
                     total_files_saved += 1
                 except Exception as e:
-                    logger.error(f"保存文件失敗 {merged_filepath}: {e}")
+                    logger.error(f"Failed to save file {merged_filepath}: {e}")
         
         # 保存統計資料為 JSON
         json_filepath = os.path.join(save_folder_path, "statistics.json")
@@ -880,11 +879,11 @@ class KVcacheContentHandler:
             with open(json_filepath, 'w', encoding='utf-8') as f:
                 json.dump(statistics_data, f, ensure_ascii=False, indent=2)
             self._ensure_file_permissions(json_filepath)
-            logger.info(f"已保存統計資料: {json_filepath}")
+            logger.info(f"Saved statistics: {json_filepath}")
         except Exception as e:
-            logger.error(f"保存統計資料失敗: {e}")
+            logger.error(f"Failed to save statistics: {e}")
         
-        logger.info(f"總共處理了 {len(expanded_content)} 個文件，保存了 {total_files_saved} 個合併文件")
+        logger.info(f"Processed {len(expanded_content)} files in total, saved {total_files_saved} merged files")
 
     def _combine_small_files_by_similarity_into_merged_parts(self, 
                                                              small_files: List[Tuple[str, List[Dict[str, Any]], int]], 

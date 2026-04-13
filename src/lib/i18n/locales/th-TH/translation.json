@@ -1517,7 +1517,7 @@
 	"Yesterday": "เมื่อวาน",
 	"You": "คุณ",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "คุณสามารถปรับแต่งการโต้ตอบของคุณกับ LLMs โดยเพิ่มความทรงจำผ่านปุ่ม 'จัดการ' ด้านล่าง ทำให้มันมีประโยชน์และเหมาะกับคุณมากขึ้น",
 	"You cannot upload an empty file.": "",
 	"You do not have permission to upload files.": "",

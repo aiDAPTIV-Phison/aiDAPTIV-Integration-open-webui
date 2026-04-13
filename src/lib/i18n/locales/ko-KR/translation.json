@@ -1517,7 +1517,7 @@
 	"Yesterday": "어제",
 	"You": "당신",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "현재 평가판 라이선스를 사용 중입니다. 라이선스를 업그레이드하려면 지원팀에 문의하세요.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "최대 {{maxCount}}개의 파일과만 동시에 대화할 수 있습니다 ",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "최대 {{maxCount}}개의 파일과만 동시에 대화할 수 있습니다 ",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "아래 '관리' 버튼으로 메모리를 추가하여 LLM들과의 상호작용을 개인화할 수 있습니다. 이를 통해 더 유용하고 맞춤화된 경험을 제공합니다.",
 	"You cannot upload an empty file.": "빈 파일을 업로드 할 수 없습니다",
 	"You do not have permission to upload files.": "파일을 업로드할 권한이 없습니다.",

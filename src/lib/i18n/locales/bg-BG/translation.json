@@ -1517,7 +1517,7 @@
 	"Yesterday": "вчера",
 	"You": "Вие",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Можете да чатите с максимум {{maxCount}} файл(а) наведнъж.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Можете да чатите с максимум {{maxCount}} файл(а) наведнъж.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Можете да персонализирате взаимодействията си с LLM-и, като добавите спомени чрез бутона 'Управление' по-долу, правейки ги по-полезни и съобразени с вас.",
 	"You cannot upload an empty file.": "Не можете да качите празен файл.",
 	"You do not have permission to upload files.": "Нямате разрешение да качвате файлове.",

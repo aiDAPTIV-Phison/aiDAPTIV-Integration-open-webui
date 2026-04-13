@@ -1517,7 +1517,7 @@
 	"Yesterday": "دیروز",
 	"You": "شما",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "شما در حال حاضر از نسخه آزمایشی استفاده می\u200cکنید. لطفاً برای ارتقای مجوز خود با پشتیبانی تماس بگیرید.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "شما در هر زمان نهایتا می\u200cتوانید با {{maxCount}} پرونده گفتگو کنید.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "شما در هر زمان نهایتا می\u200cتوانید با {{maxCount}} پرونده گفتگو کنید.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "شما می\u200cتوانید تعاملات خود با LLM\u200cها را با افزودن خاطرات از طریق دکمه 'مدیریت' در زیر شخصی\u200cسازی کنید تا آنها مفیدتر و متناسب\u200cتر با شما شوند.",
 	"You cannot upload an empty file.": "نمی\u200cتوانید فایل خالی آپلود کنید.",
 	"You do not have permission to upload files.": "شما اجازه آپلود فایل ندارید.",

@@ -22,9 +22,6 @@ class KVCacheGeneratorService:
         self.collection_name = collection_name
         self.base_folder = base_folder
 
-        # Where llama-server (managed elsewhere) will save KV cache files
-        self.collection_folder = os.path.join(self.base_folder, self.collection_name)
-
         # HTTP client
         self.client = httpx.AsyncClient()
 
@@ -32,7 +29,7 @@ class KVCacheGeneratorService:
         self.request_timeout = 3600
 
         logger.info(f"KVCacheGeneratorService(lightweight) initialized: API={self.llm_api_url}")
-        logger.info(f"KV cache path (slot-save-path expected): {self.collection_folder}")
+        logger.info(f"Using dynamic KV cache (no lock folder)")
 
     async def generate_kvcaches_for_collection(self, collection_name: str, merged_files: List[str], language: str = "zh-TW") -> int:
         """
@@ -69,7 +66,7 @@ class KVCacheGeneratorService:
                     await self._generate_single_kvcache(merge_content, task_id, language)
                     processed_count += 1
 
-                    logger.info(f"\u2713 KV cache generated for '{original_filename}'")
+                    logger.info(f"KV cache generated for '{original_filename}'")
 
                 except Exception as e:
                     logger.error(f"\u2717 Failed to process file {file_path}: {str(e)}")
@@ -136,11 +133,11 @@ class KVCacheGeneratorService:
                 })
 
             messages.append({
-                "role": "system",
+                "role": "user",
                 "content": user_content
             })
 
-            # logger.info(f"{messages=}")
+            logger.info(f"@@@kv cache build messages: {messages}")
 
             request_data = {
                 "messages": messages,
@@ -149,7 +146,6 @@ class KVCacheGeneratorService:
                 "temperature": 0,
                 "stream": False,
                 "cache_prompt": True,
-                "offload_folder_name": self.collection_name
             }
             logger.info(f"{request_data}")
 
@@ -172,7 +168,7 @@ class KVCacheGeneratorService:
             result = response.json()
 
             logger.info(f"LLM API response successful: {result.get('choices', [{}])[0].get('message', {}).get('content', '')[:100]}...")
-            logger.info(f"KV cache expected to be saved by server to: {self.collection_folder}")
+            logger.info(f"KV cache saved as dynamic KV cache (evictable, reusable)")
 
         except Exception as e:
             logger.error(f"LLM API call failed (lightweight): {str(e)}")

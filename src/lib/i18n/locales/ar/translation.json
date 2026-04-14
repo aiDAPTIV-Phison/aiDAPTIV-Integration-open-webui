@@ -1517,7 +1517,7 @@
 	"Yesterday": "أمس",
 	"You": "انت",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "أنت تستخدم حالياً ترخيصًا تجريبيًا. يُرجى التواصل مع الدعم للترقية.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "يمكنك الدردشة مع {{maxCount}} ملف(ات) كحد أقصى في نفس الوقت.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "يمكنك الدردشة مع {{maxCount}} ملف(ات) كحد أقصى في نفس الوقت.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "يمكنك تخصيص تفاعلك مع النماذج اللغوية عن طريق إضافة الذكريات باستخدام زر \"إدارة\" أدناه، مما يجعلها أكثر فائدة وتناسبًا لك.",
 	"You cannot upload an empty file.": "لا يمكنك رفع ملف فارغ.",
 	"You do not have permission to upload files.": "ليس لديك صلاحية لرفع الملفات.",

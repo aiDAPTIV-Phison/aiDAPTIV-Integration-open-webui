@@ -1517,7 +1517,7 @@
 	"Yesterday": "Hôm qua",
 	"You": "Bạn",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Bạn hiện đang sử dụng giấy phép dùng thử. Vui lòng liên hệ bộ phận hỗ trợ để nâng cấp giấy phép của bạn.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Bạn chỉ có thể trò chuyện với tối đa {{maxCount}} tệp cùng một lúc.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Bạn chỉ có thể trò chuyện với tối đa {{maxCount}} tệp cùng một lúc.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Bạn có thể cá nhân hóa các tương tác của mình với LLM bằng cách thêm bộ nhớ thông qua nút 'Quản lý' bên dưới, làm cho chúng hữu ích hơn và phù hợp với bạn hơn.",
 	"You cannot upload an empty file.": "Bạn không thể tải lên một tệp trống.",
 	"You do not have permission to upload files.": "Bạn không có quyền tải lên tệp.",

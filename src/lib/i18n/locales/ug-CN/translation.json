@@ -1517,7 +1517,7 @@
 	"Yesterday": "تۈنۈگۈن",
 	"You": "سىز",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "ھازىر سىز سىناق كىنىشكىسى ئىشلىتىۋاتىسىز. كىنىشكىڭىزنى يېڭىلاش ئۈچۈن ياردەم بەرگۈچى بىلەن ئالاقىلىشىڭ.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "بىرى ۋاقىتتا ئەڭ كۆپ {{maxCount}} ھۆججەت بىلەن سۆھبەتلىشەلەيسىز.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "بىرى ۋاقىتتا ئەڭ كۆپ {{maxCount}} ھۆججەت بىلەن سۆھبەتلىشەلەيسىز.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "تۆۋەندىكى 'باشقۇرۇش' كۇنۇپكىسى ئارقىلىق ئەسلەتمە قوشۇپ LLM بىلەن مۇناسىۋىتىڭىزنى شەخسىيلاشتۇرالايسىز.",
 	"You cannot upload an empty file.": "قۇرۇق ھۆججەت چىقىرىشقا بولمايدۇ.",
 	"You do not have permission to upload files.": "ھۆججەت چىقىرىش ھوقۇقىڭىز يوق.",

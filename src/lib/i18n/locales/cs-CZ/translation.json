@@ -1517,7 +1517,7 @@
 	"Yesterday": "Včera",
 	"You": "Vy",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Můžete komunikovat pouze s maximálně {{maxCount}} soubor(y) najednou.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Můžete komunikovat pouze s maximálně {{maxCount}} soubor(y) najednou.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Můžete personalizovat své interakce s LLM pomocí přidávání vzpomínek prostřednictvím tlačítka 'Spravovat' níže, což je učiní pro vás užitečnějšími a lépe přizpůsobenými.",
 	"You cannot upload an empty file.": "Nemůžete nahrát prázdný soubor.",
 	"You do not have permission to upload files.": "",

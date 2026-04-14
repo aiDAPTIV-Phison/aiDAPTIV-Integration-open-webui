@@ -1517,7 +1517,7 @@
 	"Yesterday": "Кеча",
 	"You": "Сиз",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Сиз ҳозирда синов литсензиясидан фойдаланмоқдасиз. Литсензиянгизни янгилаш учун қўллаб-қувватлаш хизматига мурожаат қилинг.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Сиз бир вақтнинг ўзида кўпи билан {{махCоунт}} та файл(лар) билан суҳбатлашишингиз мумкин.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Сиз бир вақтнинг ўзида кўпи билан {{махCоунт}} та файл(лар) билан суҳбатлашишингиз мумкин.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Қуйидаги “Бошқариш” тугмаси орқали хотиралар қўшиш орқали ЛЛМлар билан ўзаро алоқаларингизни шахсийлаштиришингиз мумкин, бу уларни янада фойдалироқ ва сизга мослаштиради.",
 	"You cannot upload an empty file.": "Сиз бўш файлни юклай олмайсиз.",
 	"You do not have permission to upload files.": "Сизда файлларни юклаш учун рухсат йўқ.",

@@ -1517,7 +1517,7 @@
 	"Yesterday": "Atzo",
 	"You": "Zu",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Gehienez {{maxCount}} fitxategirekin txateatu dezakezu aldi berean.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Gehienez {{maxCount}} fitxategirekin txateatu dezakezu aldi berean.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "LLMekin dituzun interakzioak pertsonalizatu ditzakezu memoriak gehituz beheko 'Kudeatu' botoiaren bidez, lagungarriagoak eta zuretzat egokituagoak eginez.",
 	"You cannot upload an empty file.": "Ezin duzu fitxategi huts bat kargatu.",
 	"You do not have permission to upload files.": "Ez duzu fitxategiak kargatzeko baimenik.",

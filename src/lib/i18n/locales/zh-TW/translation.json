@@ -1519,7 +1519,7 @@
 	"Yesterday": "昨天",
 	"You": "您",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "您目前使用的是試用授權。請聯絡支援以升級您的授權。",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "您一次最多只能與 {{maxCount}} 個檔案進行對話。",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "您一次最多只能與 {{maxCount}} 個檔案進行對話，請開啟新對話與不同檔案進行對話",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "您可以透過下方的「管理」按鈕新增記憶，將您與大型語言模型的互動個人化，讓它們更有幫助並更符合您的需求。",
 	"You cannot upload an empty file.": "您無法上傳空檔案",
 	"You do not have permission to upload files.": "您沒有權限上傳檔案。",

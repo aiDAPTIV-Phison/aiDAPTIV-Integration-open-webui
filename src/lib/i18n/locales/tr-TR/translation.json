@@ -1517,7 +1517,7 @@
 	"Yesterday": "Dün",
 	"You": "Sen",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Aynı anda en fazla {{maxCount}} dosya ile sohbet edebilirsiniz.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Aynı anda en fazla {{maxCount}} dosya ile sohbet edebilirsiniz.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Aşağıdaki 'Yönet' düğmesi aracılığıyla bellekler ekleyerek LLM'lerle etkileşimlerinizi kişiselleştirebilir, onları daha yararlı ve size özel hale getirebilirsiniz.",
 	"You cannot upload an empty file.": "Boş bir dosya yükleyemezsiniz.",
 	"You do not have permission to upload files.": "Dosya yüklemek için izniniz yok.",

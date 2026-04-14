@@ -1517,7 +1517,7 @@
 	"Yesterday": "Tegnap",
 	"You": "Ön",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Jelenleg próbaverziós licencet használ. Kérjük, lépjen kapcsolatba a támogatással a licenc frissítéséhez.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Egyszerre maximum {{maxCount}} fájllal tud csevegni.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Egyszerre maximum {{maxCount}} fájllal tud csevegni.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Az LLM-ekkel való interakcióit személyre szabhatja emlékek hozzáadásával a lenti 'Kezelés' gomb segítségével, így azok még hasznosabbak és személyre szabottabbak lesznek.",
 	"You cannot upload an empty file.": "Nem tölthet fel üres fájlt.",
 	"You do not have permission to upload files.": "Nincs jogosultsága fájlok feltöltésére.",

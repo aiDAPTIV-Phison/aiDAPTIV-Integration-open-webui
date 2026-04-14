@@ -614,7 +614,7 @@
 			files.length + inputFiles.length > $config?.file?.max_count
 		) {
 			toast.error(
-				$i18n.t(`You can only chat with a maximum of {{maxCount}} file(s) at a time.`, {
+				$i18n.t(`You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.`, {
 					maxCount: $config?.file?.max_count
 				})
 			);

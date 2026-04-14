@@ -1517,7 +1517,7 @@
 	"Yesterday": "Ahir",
 	"You": "Tu",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Actualment esteu utilitzant una llicència de prova. Poseu-vos en contacte amb el servei d'assistència per actualitzar la vostra llicència.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Només pots xatejar amb un màxim de {{maxCount}} fitxers alhora.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Només pots xatejar amb un màxim de {{maxCount}} fitxers alhora.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Pots personalitzar les teves interaccions amb els models de llenguatge afegint memòries mitjançant el botó 'Gestiona' que hi ha a continuació, fent-les més útils i adaptades a tu.",
 	"You cannot upload an empty file.": "No es pot pujar un arxiu buit.",
 	"You do not have permission to upload files.": "No tens permisos per pujar arxius.",

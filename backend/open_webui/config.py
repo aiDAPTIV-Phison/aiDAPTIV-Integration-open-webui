@@ -2474,8 +2474,10 @@ else:
     PARSE_RESULT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "parse_txt"
     PARSE_DIR_FOR_API = PARSE_RESULT_DIR
 
-print(f"PARSE_RESULT_DIR - 存parse_txt的dir: {PARSE_RESULT_DIR} ")
-print(f"PARSE_DIR_FOR_API - 丟給KM API讀取用的資料夾路徑: {PARSE_DIR_FOR_API}")
+# print(f"PARSE_RESULT_DIR - 存parse_txt的dir: {PARSE_RESULT_DIR} ")
+print(f"PARSE_RESULT_DIR - Directory for storing parsed txt: {PARSE_RESULT_DIR} ")
+# print(f"PARSE_DIR_FOR_API - 丟給KM API讀取用的資料夾路徑: {PARSE_DIR_FOR_API}")
+print(f"PARSE_DIR_FOR_API - Directory path for KM API to read: {PARSE_DIR_FOR_API}")
 
 if os.environ.get("KM_RESULT_DIR"):
     KM_RESULT_DIR = Path(os.environ.get("KM_RESULT_DIR", "None"))
@@ -2485,13 +2487,14 @@ else:
     KM_RESULT_DIR = Path(__file__).resolve().parent.parent / "data" / "km_result"
 # KM_RESULT_DIR = Path("/app/backend") / "data" / "km_result"
 
-print(f"KM_RESULT_DIR - 跟KM讀取資料的dir: {KM_RESULT_DIR}")
+# print(f"KM_RESULT_DIR - 跟KM讀取資料的dir: {KM_RESULT_DIR}")
+print(f"KM_RESULT_DIR - Directory for reading KM data: {KM_RESULT_DIR}")
 
 KM_RESULT_DIR.mkdir(parents=True, exist_ok=True)
 PARSE_RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 if RAG_SELF_KM:
-    DEFAULT_RAG_TEMPLATE = """
+    DEFAULT_RAG_TEMPLATE = """\
 You are a professional who specializes in analyzing and answering questions based on the <provided content> (chunk). Please strictly adhere to the following <provided content> to answer the <user's question> (query). Your response should be:
 - Complete: comprehensively addressing all questions raised in the <user's question>.
 - Accurate: ensuring all information is based solely on the <provided content>, without adding any external knowledge, personal opinions, or subjective judgments.

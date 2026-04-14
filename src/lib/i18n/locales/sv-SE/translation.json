@@ -1517,7 +1517,7 @@
 	"Yesterday": "Igår",
 	"You": "Dig",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Du använder för närvarande en testlicens. Kontakta support för att uppgradera din licens.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Du kan endast chatta med maximalt {{maxCount}} fil(er) på samma gång",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Du kan endast chatta med maximalt {{maxCount}} fil(er) på samma gång",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Du kan anpassa dina interaktioner med stora språkmodeller genom att lägga till minnen via knappen 'Hantera' nedan, så att de blir mer användbara och skräddarsydda för dig.",
 	"You cannot upload an empty file.": "Du kan inte ladda upp en tom fil.",
 	"You do not have permission to upload files.": "Du har inte behörighet att ladda upp filer.",

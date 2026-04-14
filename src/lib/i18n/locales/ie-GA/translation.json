@@ -1517,7 +1517,7 @@
 	"Yesterday": "Inné",
 	"You": "Tú",
 	"You are currently using a trial license. Please contact support to upgrade your license.": "Tá ceadúnas trialach á úsáid agat faoi láthair. Déan teagmháil leis an bhfoireann tacaíochta chun do cheadúnas a uasghrádú.",
-	"You can only chat with a maximum of {{maxCount}} file(s) at a time.": "Ní féidir leat comhrá a dhéanamh ach le comhad {{maxCount}} ar a mhéad ag an am.",
+	"You can only chat with a maximum of {{maxCount}} file(s) at a time. Please start a new chat to converse with different files.": "Ní féidir leat comhrá a dhéanamh ach le comhad {{maxCount}} ar a mhéad ag an am.",
 	"You can personalize your interactions with LLMs by adding memories through the 'Manage' button below, making them more helpful and tailored to you.": "Is féidir leat do chuid idirghníomhaíochtaí le LLManna a phearsantú ach cuimhní cinn a chur leis tríd an gcnaipe 'Bainistigh' thíos, rud a fhágann go mbeidh siad níos cabhrach agus níos oiriúnaí duit.",
 	"You cannot upload an empty file.": "Ní féidir leat comhad folamh a uaslódáil.",
 	"You do not have permission to upload files.": "Níl cead agat comhaid a uaslódáil.",

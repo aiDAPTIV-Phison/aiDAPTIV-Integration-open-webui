@@ -32,6 +32,9 @@ except ImportError:
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
+APP_VERSION = "0.4.4"
+_startup_time = datetime.utcnow()
+
 
 # Data models
 class FileInfo(BaseModel):
@@ -101,6 +104,10 @@ class QueryRequest(BaseModel):
     collection_name: str = Field(..., description="Collection name to query")
     question: str = Field(..., description="User question")
     k: int = Field(default=5, description="Number of top-k results to retrieve")
+    rag_method: str = Field(
+        default="kv_cache_reuse", 
+        description="RAG method: 'kv_cache_reuse'(default, use merged file) or 'parent_chunk'(use top-k parent chunks)"
+    )
 
 
 class QueryResponse(BaseModel):
@@ -123,6 +130,10 @@ class QueryOpenAIRequest(BaseModel):
     model: str = Field(default="gpt-4", description="Model name")
     params: Optional[Dict[str, Any]] = Field(default=None, description="Additional parameters")
     language: str = Field(default="zh-TW", description="Language")
+    rag_method: str = Field(
+        default="kv_cache_reuse", 
+        description="RAG method: 'kv_cache_reuse'(default, use merged file) or 'parent_chunk'(use top-k parent chunks)"
+    )
 
 
 class QueryOpenAIResponse(BaseModel):
@@ -145,6 +156,10 @@ class QueryExecuteRequest(BaseModel):
     language: str = Field(default="zh-TW", description="Language")
     model_url: Optional[str] = Field(default=None, description="自訂模型 API URL（若未提供則使用環境變數）")
     model_name: Optional[str] = Field(default=None, description="自訂模型名稱（若未提供則使用環境變數）")
+    rag_method: str = Field(
+        default="kv_cache_reuse", 
+        description="RAG method: 'kv_cache_reuse'(default, use merged file) or 'parent_chunk'(use top-k parent chunks)"
+    )
 
 
 class QueryExecuteResponse(BaseModel):
@@ -180,7 +195,7 @@ class TaskStatus:
 app = FastAPI(
     title="Document Processing & KV Cache API",
     description="Intelligent document processing and KV Cache generation API",
-    version="3.0.0"
+    version=APP_VERSION
 )
 
 # Initialize services (using configured base folder)
@@ -238,7 +253,7 @@ async def startup():
     logger.info("=" * 80)
     
     # 初始化 embedding_model
-    if EMBEDDING_MODELS_AVAILABLE and settings.EMBEDDING_URL:
+    if EMBEDDING_MODELS_AVAILABLE and settings.EMBEDDING_API_IP and settings.EMBEDDING_API_PORT:
         try:
             embedding_url = settings.EMBEDDING_API_URL
             
@@ -247,7 +262,7 @@ async def startup():
                     api_url=embedding_url, 
                     api_key="empty"
                 )
-                logger.info(f"✅ 使用 TEI 嵌入模型: {embedding_url}")
+                logger.info(f"Using TEI embedding model: {embedding_url}")
             elif settings.EMBEDDING_TYPE in ["vllm", "openai", "llamacpp"]:
                 embedding_model = OpenAIEmbeddings(
                     model=settings.EMBEDDING_MODEL_NAME,
@@ -257,21 +272,21 @@ async def startup():
                     check_embedding_ctx_length=False,
                     encoding_format="float"
                 )
-                logger.info(f"✅ 使用 OpenAI format 嵌入模型: {embedding_url}, model: {settings.EMBEDDING_MODEL_NAME}")
+                logger.info(f"Using OpenAI format embedding model: {embedding_url}, model: {settings.EMBEDDING_MODEL_NAME}")
             else:
-                logger.warning(f"不支援的 EMBEDDING_TYPE: {settings.EMBEDDING_TYPE}，將使用 BM25")
+                logger.warning(f"Unsupported EMBEDDING_TYPE: {settings.EMBEDDING_TYPE}, will use BM25")
         except Exception as e:
-            logger.warning(f"⚠️  無法創建 embedding_model: {e}，將使用 BM25")
+            logger.warning(f"Failed to create embedding_model: {e}, will use BM25")
             embedding_model = None
     else:
         if not EMBEDDING_MODELS_AVAILABLE:
-            logger.warning("⚠️  Embedding 模組不可用，將使用 BM25")
-        elif not settings.EMBEDDING_URL:
-            logger.warning("⚠️  未設定 EMBEDDING_URL，將使用 BM25")
+            logger.warning("Embedding modules not available, will use BM25")
+        elif not settings.EMBEDDING_API_IP or not settings.EMBEDDING_API_PORT:
+            logger.warning("EMBEDDING_API_IP or EMBEDDING_API_PORT not set, will use BM25")
     
     # 初始化 RAG query service
     rag_query_service = RAGQueryService(embedding_model=embedding_model)
-    logger.info("✅ RAG Query Service initialized")
+    logger.info("RAG Query Service initialized")
 
 
 @app.on_event("shutdown")
@@ -286,8 +301,17 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow(),
-        "version": "3.0.0",
+        "version": APP_VERSION,
         "base_folder": task_manager.base_folder
+    }
+
+
+@app.get("/api/v1/version")
+async def get_version_info():
+    """取得當前系統版本資訊"""
+    return {
+        "version": APP_VERSION,
+        "startup_time": _startup_time.isoformat() + "Z",
     }
 
 
@@ -528,13 +552,14 @@ async def get_api_info():
     """Get API information"""
     return {
         "api_name": "Document Processing & KV Cache API",
-        "version": "3.0.0",
+        "version": APP_VERSION,
         "base_folder": task_manager.base_folder,
         "active_tasks": len(tasks),
         "endpoints": [
             "POST /api/v1/process - create task (supports language parameter)",
             "GET /api/v1/status/{task_id} - get task status", 
             "GET /api/v1/gpu/status - get GPU status",
+            "GET /api/v1/version - version info",
             "GET /api/v1/info - API info",
             "GET /health - health check",
             "POST /api/v1/tokens - calculate single file token count",
@@ -801,14 +826,19 @@ async def query_collection(request: QueryRequest):
     對指定的 collection 進行 RAG 查詢
     
     Args:
-        request: QueryRequest 包含 collection_name, question, k 參數
+        request: QueryRequest 包含 collection_name, question, k, rag_method 參數
+            - rag_method: 'kv_cache_reuse'(預設,使用merged file) 或 'parent_chunk'(使用top-k parent chunks)
     
     Returns:
         QueryResponse: 查詢結果，包含推薦的文件名、聊天消息和檢索內容
     """
-    logger.info(f"[/api/v1/query] Received query request - collection: {request.collection_name}, question: {request.question[:50]}...")
+    logger.info(f"[/api/v1/query] Received query request - collection: {request.collection_name}, question: {request.question[:50]}..., rag_method: {request.rag_method}")
     
     try:
+        # 驗證 rag_method 參數
+        valid_methods = ['kv_cache_reuse', 'parent_chunk']
+        rag_method = request.rag_method if request.rag_method in valid_methods else 'kv_cache_reuse'
+        
         # 驗證 collection 是否存在
         available_collections = rag_query_service.get_available_collections()
         if request.collection_name not in available_collections:
@@ -821,17 +851,25 @@ async def query_collection(request: QueryRequest):
         # 獲取 collection
         chroma = rag_query_service._get_collection(request.collection_name)
         
-        # 執行 RAG 查詢
+        # 根據 rag_method 選擇不同的 RAG 方法
         # result: {'filename': merge_file_name,
         #          'chat_messages': chat_messages,
         #          'merged_content': merged_content,
         #          'error': ''}
-        result = rag_query_service.get_rag_context_with_file_content(
-            chroma=chroma,
-            collection_name=request.collection_name,
-            question=request.question,
-            k=request.k
-        )
+        if rag_method == 'parent_chunk':
+            result = rag_query_service.get_rag_context_with_parent_chunks(
+                chroma=chroma,
+                collection_name=request.collection_name,
+                question=request.question,
+                k=request.k
+            )
+        else:
+            result = rag_query_service.get_rag_context_with_file_content(
+                chroma=chroma,
+                collection_name=request.collection_name,
+                question=request.question,
+                k=request.k
+            )
         
         if result.get('error'):
             logger.error(f"[/api/v1/query] Query failed: {result['error']}")
@@ -890,11 +928,12 @@ async def query_collection_openai_payload(request: QueryOpenAIRequest):
     
     Args:
         request: QueryOpenAIRequest 包含查詢參數和 OpenAI 配置
+            - rag_method: 'kv_cache_reuse'(預設,使用merged file) 或 'parent_chunk'(使用top-k parent chunks)
     
     Returns:
         QueryOpenAIResponse: 包含 OpenAI 格式的 payload 字符串
     """
-    logger.info(f"[/api/v1/query/openai] Received OpenAI payload request - collection: {request.collection_name}, query: {request.query[:50]}...")
+    logger.info(f"[/api/v1/query/openai] Received OpenAI payload request - collection: {request.collection_name}, query: {request.query[:50]}..., rag_method: {request.rag_method}")
     
     try:
         # 驗證 collection 是否存在
@@ -906,7 +945,7 @@ async def query_collection_openai_payload(request: QueryOpenAIRequest):
         #         detail=f"Collection '{request.collection_name}' not found. Available collections: {available_collections}"
         #     )
         
-        # 生成 OpenAI payload
+        # 生成 OpenAI payload（支持 rag_method 參數）
         result = rag_query_service.generate_openai_payload(
             collection_name=request.collection_name,
             query=request.query,
@@ -914,9 +953,10 @@ async def query_collection_openai_payload(request: QueryOpenAIRequest):
             stream=request.stream,
             model=request.model,
             params=request.params,
-            language=request.language
+            language=request.language,
+            rag_method=request.rag_method
         )
-        
+        logger.info(f"[/api/v1/query/openai] Result: {json.dumps(result, indent=2, ensure_ascii=False)}")
         if result['success']:
             logger.info(f"[/api/v1/query/openai] OpenAI payload generated successfully")
             return QueryOpenAIResponse(
@@ -954,19 +994,21 @@ async def execute_query_with_model(request: QueryExecuteRequest):
     
     Args:
         request: QueryExecuteRequest 包含查詢參數和 OpenAI 配置
+            - rag_method: 'kv_cache_reuse'(預設,使用merged file) 或 'parent_chunk'(使用top-k parent chunks)
     
     Returns:
         QueryExecuteResponse: 包含模型的回應結果
     """
-    logger.info(f"[/api/v1/query/execute] Received execute request - collection: {request.collection_name}, query: {request.query[:50]}...")
+    logger.info(f"[/api/v1/query/execute] Received execute request - collection: {request.collection_name}, query: {request.query[:50]}..., rag_method: {request.rag_method}")
     
     try:
-        # 使用 prepare_rag_messages 準備 RAG messages（不需要序列化/反序列化）
+        # 使用 prepare_rag_messages 準備 RAG messages（支持 rag_method 參數）
         rag_result = rag_query_service.prepare_rag_messages(
             collection_name=request.collection_name,
             query=request.query,
             k=request.k,
-            language=request.language
+            language=request.language,
+            rag_method=request.rag_method
         )
         
         if not rag_result['success']:
@@ -996,14 +1038,23 @@ async def execute_query_with_model(request: QueryExecuteRequest):
             logger.info(f"[/api/v1/query/execute] Model Name: {use_model_name}")
             
             # 構建 LLM API payload（直接使用 messages，無需序列化/反序列化）
+            # 設定基本參數和預設值
             llm_payload = {
                 "model": use_model_name,
                 "messages": rag_result['messages'],
-                "max_tokens": request.params.get("max_tokens", 2048) if request.params else 2048,
-                "temperature": request.params.get("temperature", 0.7) if request.params else 0.7,
-                "top_p": request.params.get("top_p", 1.0) if request.params else 1.0,
+                "max_tokens": 2048,
+                "temperature": 0.7,
+                "top_p": 1.0,
                 "stream": False,
             }
+            
+            # 如果有 params，將其中的參數覆蓋到 payload 中
+            if request.params:
+                llm_payload.update(request.params)
+                # 確保必要欄位不被覆蓋
+                llm_payload["model"] = use_model_name
+                llm_payload["messages"] = rag_result['messages']
+                llm_payload["stream"] = False
             
             # 調用 LLM API
             async with httpx.AsyncClient(timeout=300.0) as client:

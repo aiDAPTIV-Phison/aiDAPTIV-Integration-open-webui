@@ -149,10 +149,10 @@ class KVCacheGeneratorService:
                         await self._generate_single_kvcache(merge_content, task_id, language)
                         processed_count += 1
                         
-                        logger.info(f"✓ KV cache generated for '{original_filename}'")
+                        logger.info(f"KV cache generated for '{original_filename}'")
                         
                     except Exception as e:
-                        logger.error(f"✗ Failed to process file {file_path}: {str(e)}")
+                        logger.error(f"Failed to process file {file_path}: {str(e)}")
                         continue
                 
                 logger.info(f"Collection '{collection_name}' KV cache done: {processed_count}/{len(merged_files)} succeeded")
@@ -383,29 +383,29 @@ class KVCacheGeneratorService:
         logger.error("Common issues check:")
         
         if "model" in output_lower and ("not found" in output_lower or "no such file" in output_lower):
-            logger.error("  ❌ Model file does not exist or path error")
+            logger.error("  Model file does not exist or path error")
             logger.error(f"     Please check model path: {settings.LLM_MODEL_PATH}")
             
         if "cuda" in output_lower:
             if "out of memory" in output_lower:
-                logger.error("  ❌ GPU memory insufficient")
+                logger.error("  GPU memory insufficient")
                 logger.error("     Please try reducing -ngl parameter or use smaller model")
             elif "driver" in output_lower:
-                logger.error("  ❌ CUDA driver issue")
+                logger.error("  CUDA driver issue")
                 logger.error("     Please check GPU driver and CUDA version")
             else:
-                logger.error("  ⚠️ CUDA related issue")
+                logger.error("  CUDA related issue")
                 
         if "permission" in output_lower:
-            logger.error("  ❌ Permission issue")
+            logger.error("  Permission issue")
             logger.error("     Please check file and directory permissions")
             
         if "port" in output_lower and ("bind" in output_lower or "already in use" in output_lower):
-            logger.error(f"  ❌ Port {settings.LLM_API_PORT} already in use")
+            logger.error(f"  Port {settings.LLM_API_PORT} already in use")
             logger.error("     Please check if other processes are using this port")
             
         if "invalid" in output_lower and "argument" in output_lower:
-            logger.error("  ❌ Invalid command line arguments")
+            logger.error("  Invalid command line arguments")
             logger.error("     Please check llama-server version and parameter compatibility")
 
     async def _wait_for_service_ready(self):
@@ -634,7 +634,7 @@ class KVCacheGeneratorService:
             
             # Add user message
             messages.append({
-                "role": "system",
+                "role": "user",
                 "content": user_content
             })
             

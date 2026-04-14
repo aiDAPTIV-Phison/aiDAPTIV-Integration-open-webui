@@ -74,6 +74,8 @@ from open_webui.utils.misc import (
     add_or_update_user_message,
     get_last_user_message,
     get_last_assistant_message,
+    get_content_from_message,
+    get_system_message,
     prepend_to_first_user_message_content,
     convert_logit_bias_input_to_json,
 )
@@ -141,7 +143,6 @@ def clean_timing_info_from_content(content):
     content = re.sub(r'^Token Rate: \d+\.?\d* tokens\/s\s*\n?', '', content, flags=re.MULTILINE)
     content = re.sub(r'\nToken Rate: \d+\.?\d* tokens\/s\s*\n?', '\n', content, flags=re.MULTILINE)
 
-    # 清理首尾空白
     content = content.strip()
 
     return content
@@ -1169,22 +1170,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     f"With a 0 relevancy threshold for RAG, the context cannot be empty"
                 )
         else:
-            # Workaround for Ollama 2.0+ system prompt issue
-            # TODO: replace with add_or_update_system_message
-            if model.get("owned_by") == "ollama":
-                form_data["messages"] = prepend_to_first_user_message_content(
-                    rag_template(
-                        request.app.state.config.RAG_TEMPLATE, context_string, prompt
-                    ),
-                    form_data["messages"],
-                )
-            else:
-                form_data["messages"] = add_or_update_system_message(
-                    rag_template(
-                        request.app.state.config.RAG_TEMPLATE, context_string, prompt
-                    ),
-                    form_data["messages"],
-                )
+            rag_content = rag_template(
+                request.app.state.config.RAG_TEMPLATE, context_string, prompt
+            )
+
+            form_data["messages"] = prepend_to_first_user_message_content(
+                rag_content, form_data["messages"]
+            )
 
     # If there are citations, add them to the data_items
     sources = [
@@ -2127,32 +2119,37 @@ async def process_chat_response(
                                 usage = data.get("usage", {})
                                 if usage:
                                     usage_info.update(usage)
-                                    log.info(f"[METRICS] ✓ Collected usage at line #{line_count}: {usage}")
+                                    # log.info(f"[METRICS] ✓ Collected usage at line #{line_count}: {usage}")
+                                    log.info(f"[METRICS] Collected usage at line #{line_count}: {usage}")
                                 
-                                # 收集 timing metrics（從頂層）
+                                # Collect timing metrics (from top level)
                                 timing_found = False
                                 if "first_token_time" in data:
                                     metrics_info["first_token_time"] = data.get("first_token_time")
-                                    log.info(f"[METRICS] ✓ Collected first_token_time at line #{line_count}: {data.get('first_token_time')}")
+                                    # log.info(f"[METRICS] ✓ Collected first_token_time at line #{line_count}: {data.get('first_token_time')}")
+                                    log.info(f"[METRICS] Collected first_token_time at line #{line_count}: {data.get('first_token_time')}")
                                     timing_found = True
                                 if "last_token_time" in data:
                                     metrics_info["last_token_time"] = data.get("last_token_time")
-                                    log.info(f"[METRICS] ✓ Collected last_token_time at line #{line_count}: {data.get('last_token_time')}")
+                                    # log.info(f"[METRICS] ✓ Collected last_token_time at line #{line_count}: {data.get('last_token_time')}")
+                                    log.info(f"[METRICS] Collected last_token_time at line #{line_count}: {data.get('last_token_time')}")
                                     timing_found = True
                                 
-                                # 也嘗試從 metrics 子字段讀取
+                                # Also try reading from metrics sub-field
                                 metrics = data.get("metrics", {})
                                 if metrics:
                                     if "first_token_time" in metrics:
                                         metrics_info["first_token_time"] = metrics.get("first_token_time")
-                                        log.info(f"[METRICS] ✓ Collected first_token_time from metrics at line #{line_count}: {metrics.get('first_token_time')}")
+                                        # log.info(f"[METRICS] ✓ Collected first_token_time from metrics at line #{line_count}: {metrics.get('first_token_time')}")
+                                        log.info(f"[METRICS] Collected first_token_time from metrics at line #{line_count}: {metrics.get('first_token_time')}")
                                         timing_found = True
                                     if "last_token_time" in metrics:
                                         metrics_info["last_token_time"] = metrics.get("last_token_time")
-                                        log.info(f"[METRICS] ✓ Collected last_token_time from metrics at line #{line_count}: {metrics.get('last_token_time')}")
+                                        # log.info(f"[METRICS] ✓ Collected last_token_time from metrics at line #{line_count}: {metrics.get('last_token_time')}")
+                                        log.info(f"[METRICS] Collected last_token_time from metrics at line #{line_count}: {metrics.get('last_token_time')}")
                                         timing_found = True
                                 
-                                # Debug: 如果是前5個chunk或者找到重要數據，記錄完整的 keys
+                                # Debug: log full keys for the first 5 chunks or when important data is found
                                 if line_count <= 5 or usage or timing_found:
                                     log.debug(f"[METRICS DEBUG] Chunk #{line_count} keys: {data.keys()}")
 
@@ -2904,7 +2901,8 @@ async def process_chat_response(
                             if decode_time > 0 and output_tokens_num > 0:
                                 decode_tp = round(output_tokens_num / decode_time, 2)
                                 decode_tp_text = f"{decode_tp} tokens/s"
-                                log.info(f"[METRICS] ✓ Decode throughput from API - decode_time={round(decode_time, 2)}s, output_tokens={output_tokens_num}, input_tokens={input_tokens_num}, decode_tp={decode_tp} tokens/s")
+                                # log.info(f"[METRICS] ✓ Decode throughput from API - decode_time={round(decode_time, 2)}s, output_tokens={output_tokens_num}, input_tokens={input_tokens_num}, decode_tp={decode_tp} tokens/s")
+                                log.info(f"[METRICS] Decode throughput from API - decode_time={round(decode_time, 2)}s, output_tokens={output_tokens_num}, input_tokens={input_tokens_num}, decode_tp={decode_tp} tokens/s")
                             else:
                                 log.warning(f"[METRICS] Cannot calculate decode_tp from API - decode_time={decode_time}, output_tokens={output_tokens_num}")
                         else:
@@ -2923,14 +2921,16 @@ async def process_chat_response(
                         if decode_time > 0 and output_tokens_num > 0:
                             decode_tp = round(output_tokens_num / decode_time, 2)
                             decode_tp_text = f"{decode_tp} tokens/s"
-                            log.info(f"[METRICS] ✓ Decode throughput from self-tracking (fallback) - decode_time={round(decode_time, 2)}s, output_tokens={output_tokens_num}, decode_tp={decode_tp} tokens/s")
+                            # log.info(f"[METRICS] ✓ Decode throughput from self-tracking (fallback) - decode_time={round(decode_time, 2)}s, output_tokens={output_tokens_num}, decode_tp={decode_tp} tokens/s")
+                            log.info(f"[METRICS] Decode throughput from self-tracking (fallback) - decode_time={round(decode_time, 2)}s, output_tokens={output_tokens_num}, decode_tp={decode_tp} tokens/s")
                         else:
                             log.warning(f"[METRICS] Cannot calculate decode_tp from self-tracking - decode_time={decode_time}, output_tokens={output_tokens_num}")
                     except Exception as e:
                         log.error(f"[METRICS] Error calculating decode throughput from self-tracking: {e}")
                 
                 if not decode_tp_text:
-                    log.warning(f"[METRICS] ✗ Could not calculate decode_tp - insufficient data from both API and self-tracking")
+                    # log.warning(f"[METRICS] ✗ Could not calculate decode_tp - insufficient data from both API and self-tracking")
+                    log.warning(f"[METRICS] Could not calculate decode_tp - insufficient data from both API and self-tracking")
 
                 # 記錄最終統計
                 log.debug(f"[TTFT] Response completed - TTFT={ttft_value}s, Total Time={total_time}s, stream_handler_depth={stream_handler_depth}")
